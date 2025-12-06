@@ -59,13 +59,10 @@ export class Renderer {
 
         const width = window.innerWidth;
         const height = window.innerHeight;
-        const aspect = width / height;
 
         // We don't update frustum here directly if we rely on fitCameraToGrid to be called immediately after
         // But basic update:
-        // We usually maintain fixed height or width logic. fitCameraToGrid handles the "zoom".
-
-        this.renderer.setSize(width, height);
+        // We usually maintain fixed height or width logic. fitCameraToGrid        this.renderer.setSize(width, height);
 
         // Dispatch custom event for game logic to update grid
         window.dispatchEvent(new CustomEvent('game-resize', { detail: { aspect: width / height } }));

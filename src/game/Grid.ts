@@ -258,7 +258,7 @@ export class Grid {
         console.log(`[Grid] Debug Group added.`);
     }
 
-    private updateDebug(snakePath: THREE.Vector3[]) {
+    private updateDebug() {
         if (!this.showDebug) return;
 
         // Cleanup Geometries from previous frame to prevent memory leak
@@ -438,7 +438,7 @@ export class Grid {
         });
 
         // --- 6. Update Debug Renderer ---
-        this.updateDebug(snakePath);
+        this.updateDebug();
     }
 
     private updateSnakePhysics(snakePath: THREE.Vector3[]) {
@@ -650,7 +650,7 @@ export class Grid {
             });
             if (bodies.length > 0) continue;
 
-            const type = Math.floor(Math.random() * 4) as FruitType;
+            const type = Math.floor(Math.random() * 2) as FruitType;
             const mesh = FruitVisuals.createFruitMesh(type);
             mesh.position.set(rx, 0, rz);
             const scale = sizeCells * CONFIG.GRID.CELL_SIZE * 0.8;
@@ -735,8 +735,4 @@ export class Grid {
         return false;
     }
 
-    private getRandomEmptyRegion(snakePath: THREE.Vector3[], bboxRadius: number, regionSizeCells: number): { x: number, z: number } | null {
-        // Deprecated but kept to satisfy structure if needed, or can be removed.
-        return null;
-    }
 }
