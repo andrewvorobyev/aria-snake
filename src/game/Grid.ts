@@ -393,7 +393,9 @@ export class Grid {
     /**
      * Scare organisms near a position - makes them flee
      */
-    public scareOrganisms(x: number, z: number, radius: number = 8.0) {
+    public scareOrganisms(x: number, z: number, radius: number = CONFIG.ORGANISMS.SCARE.RADIUS) {
+        const scareConfig = CONFIG.ORGANISMS.SCARE;
+
         for (const org of this.organisms) {
             const pos = org.headBody.position;
             const dx = pos.x - x;
@@ -406,10 +408,10 @@ export class Grid {
                 org.angle = fleeAngle;
 
                 // Set scared timer - organism will move fast for this duration
-                org.scaredTimer = 1.0; // 1 second of being scared
+                org.scaredTimer = scareConfig.DURATION;
 
                 // Boost speed temporarily by setting high velocity
-                const fleeSpeed = org.speed * 4.0;
+                const fleeSpeed = org.speed * scareConfig.SPEED_MULTIPLIER;
                 const vx = Math.cos(org.angle) * fleeSpeed;
                 const vz = Math.sin(org.angle) * fleeSpeed;
                 Matter.Body.setVelocity(org.headBody, { x: vx, y: vz });
@@ -482,7 +484,7 @@ export class Grid {
         // Velocity in Matter.js is per-update. 
         // We set it directly to control movement precisely.
         // Use higher speed if scared
-        const speedMultiplier = org.scaredTimer > 0 ? 4.0 : 1.0;
+        const speedMultiplier = org.scaredTimer > 0 ? CONFIG.ORGANISMS.SCARE.SPEED_MULTIPLIER : 1.0;
         const vx = Math.cos(org.angle) * org.speed * speedMultiplier;
         const vz = Math.sin(org.angle) * org.speed * speedMultiplier;
 
