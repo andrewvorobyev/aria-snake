@@ -1,6 +1,107 @@
 import * as THREE from 'three';
 import { CONFIG } from '../constants';
 
+const BACKGROUND_VERTEX_SHADER = `
+varying vec2 vUv;
+varying vec3 vWorldPosition;
+void main() {
+    vUv = uv;
+    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+    vWorldPosition = worldPosition.xyz;
+    gl_Position = projectionMatrix * viewMatrix * worldPosition;
+}
+`;
+
+const BACKGROUND_FRAGMENT_SHADER = `
+uniform float uTime;
+varying vec2 vUv;
+
+// Simplex 2D noise
+vec3 permute(vec3 x) { return mod(((x*34.0)+1.0)*x, 289.0); }
+
+float snoise(vec2 v){
+  const vec4 C = vec4(0.211324865405187, 0.366025403784439,
+           -0.577350269189626, 0.024390243902439);
+  vec2 i  = floor(v + dot(v, C.yy) );
+  vec2 x0 = v -   i + dot(i, C.xx);
+  vec2 i1;
+  i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+  vec4 x12 = x0.xyxy + C.xxzz;
+  x12.xy -= i1;
+  i = mod(i, 289.0);
+  vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 ))
+  + i.x + vec3(0.0, i1.x, 1.0 ));
+  vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+  m = m*m ;
+  m = m*m ;
+  vec3 x = 2.0 * fract(p * C.www) - 1.0;
+  vec3 h = abs(x) - 0.5;
+  vec3 ox = floor(x + 0.5);
+  vec3 a0 = x - ox;
+  m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
+  vec3 g;
+  g.x  = a0.x  * x0.x  + h.x  * x0.y;
+  g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+  return 130.0 * dot(m, g);
+}
+
+void main() {
+    vec2 uv = vUv;
+    float time = uTime * 0.1;
+
+    // --- 1. Background Gradient (Deep Marine) ---
+    vec3 bgA = vec3(0.06, 0.11, 0.18); 
+    vec3 bgB = vec3(0.01, 0.02, 0.06); 
+    vec3 col = mix(bgA, bgB, uv.y + 0.2 * sin(time * 0.5));
+
+    // --- 2. Fluid Currents (Volumetric) ---
+    float angle = -0.5;
+    mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
+    vec2 rotUV = rot * uv * 0.6; // Large scale
+    
+    // Domain Warping for fluidity
+    vec2 warp = vec2(
+        snoise(rotUV * 1.5 + vec2(time * 0.2, time * 0.1)),
+        snoise(rotUV * 1.5 + vec2(time * 0.15, -time * 0.2) + vec2(3.4, 1.2))
+    );
+    
+    // Displaced noise
+    float fluidNoise = snoise(rotUV + warp * 0.4 - vec2(time * 0.05, time * 0.1));
+    
+    // Soft & Flowing
+    float currents = smoothstep(-0.4, 1.0, fluidNoise);
+    
+    // Teal/Aqua Caustics
+    vec3 currentCol = vec3(0.2, 0.5, 0.6); 
+    col += currents * currentCol * 0.12; 
+
+    // --- 3. Drifting Plankton ---
+    float dustTime = uTime * 0.03; 
+    vec2 dustUV = uv * 6.0; 
+    
+    // Swirly dust movement
+    vec2 dustWarp = vec2(
+        sin(dustUV.y * 2.0 + time), 
+        cos(dustUV.x * 2.0 + time * 0.8)
+    ) * 0.1;
+    
+    float n1 = snoise(dustUV + dustWarp + vec2(0.0, -dustTime)); 
+    float speck1 = smoothstep(0.4, 0.9, n1); 
+    
+    float n2 = snoise(dustUV * 0.5 + dustWarp * 0.5 + vec2(dustTime * 0.5, dustTime));
+    float speck2 = smoothstep(0.4, 0.9, n2);
+    
+    vec3 dustCol = vec3(0.4, 0.7, 0.8);
+    col += (speck1 * 0.15 + speck2 * 0.1) * dustCol;
+
+    // --- 4. Vignette ---
+    float dist = distance(uv, vec2(0.5));
+    col *= smoothstep(1.3, 0.2, dist * 0.8);
+
+    gl_FragColor = vec4(col, 1.0);
+}
+`;
+
 export const CellState = {
     EMPTY: 0,
     SNAKE: 1,
@@ -33,6 +134,8 @@ export class Grid {
     private fruitGeometry: THREE.SphereGeometry;
     private fruitMaterial: THREE.MeshStandardMaterial;
 
+    private bgMaterial: THREE.ShaderMaterial; // Store to update uniforms
+
     private occupiedCells: Set<string> = new Set();
 
     constructor(aspectRatio: number) {
@@ -43,6 +146,16 @@ export class Grid {
 
         this.fruitGeometry = new THREE.SphereGeometry(CONFIG.GRID.CELL_SIZE * CONFIG.FRUIT.SIZE_CELLS * 0.4);
         this.fruitMaterial = new THREE.MeshStandardMaterial({ color: CONFIG.COLORS.FRUIT });
+
+        // Initialize shader material
+        this.bgMaterial = new THREE.ShaderMaterial({
+            vertexShader: BACKGROUND_VERTEX_SHADER,
+            fragmentShader: BACKGROUND_FRAGMENT_SHADER,
+            uniforms: {
+                uTime: { value: 0 }
+            },
+            side: THREE.DoubleSide
+        });
 
         this.resize(aspectRatio);
     }
@@ -59,14 +172,15 @@ export class Grid {
         this.fruits = [];
         this.occupiedCells.clear();
 
-        this.createGridLines();
-
+        // Background Plane
         const planeGeo = new THREE.PlaneGeometry(this.width, this.depth);
-        const planeMat = new THREE.MeshBasicMaterial({ color: CONFIG.COLORS.BACKGROUND, side: THREE.DoubleSide });
-        const plane = new THREE.Mesh(planeGeo, planeMat);
+        // Use the shader material
+        const plane = new THREE.Mesh(planeGeo, this.bgMaterial);
         plane.rotation.x = Math.PI / 2;
         plane.receiveShadow = true;
         this.mesh.add(plane);
+
+        // this.createGridLines();
     }
 
     private createGridLines() {
@@ -75,25 +189,14 @@ export class Grid {
         const halfW = this.width / 2;
         const halfD = this.depth / 2;
 
-        // Ensure lines are integer aligned from center (0,0)
-        // Vertical Lines (along Z)
-        // Range: from -floor(halfW) to floor(halfW)
-        // Actually we want cell boundaries. If cells are at 0, 1, 2... 
-        // Boundaries are at -0.5, 0.5, 1.5? 
-        // Or if cells are at 0.5, 1.5. Boundaries at 0, 1, 2.
-        // Let's stick to Node centers at Integers (0,0), then boundaries are at +/- 0.5.
-
         const xLimit = halfW;
         for (let x = 0.5; x <= xLimit; x += 1.0) {
-            // Positive side
             points.push(new THREE.Vector3(x, 0, -halfD));
             points.push(new THREE.Vector3(x, 0, halfD));
-            // Negative side
             points.push(new THREE.Vector3(-x, 0, -halfD));
             points.push(new THREE.Vector3(-x, 0, halfD));
         }
 
-        // Horizontal Lines (along X)
         const zLimit = halfD;
         for (let z = 0.5; z <= zLimit; z += 1.0) {
             points.push(new THREE.Vector3(-halfW, 0, z));
@@ -108,6 +211,9 @@ export class Grid {
     }
 
     public update(dt: number, snakePath: THREE.Vector3[]) {
+        // Update shader time
+        this.bgMaterial.uniforms.uTime.value += dt;
+
         // 1. Manage Obstacles
         const totalCells = (this.width / CONFIG.GRID.CELL_SIZE) * (this.depth / CONFIG.GRID.CELL_SIZE);
         const targetCount = Math.floor(totalCells * CONFIG.GRID.TARGET_OBSTACLE_DENSITY);
