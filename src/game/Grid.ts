@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../constants';
 import { FruitVisuals, FruitType } from './FruitVisuals';
-import { ObstacleVisuals } from './ObstacleVisuals';
+import { OrganismVisuals } from './OrganismVisuals';
 
 const BACKGROUND_VERTEX_SHADER = `
 varying vec2 vUv;
@@ -118,14 +118,19 @@ export const CellState = {
     OBSTACLE: 3
 } as const;
 
-interface Obstacle {
-    x: number;
-    z: number;
-    mesh: THREE.Mesh;
-    ttl: number; // Time To Live
-    mask?: number;
+
+
+interface Organism {
+    segments: { x: number, z: number }[];
+    direction: { x: number, z: number };
+    visuals: OrganismVisuals;
+    moveTimer: number;
+    moveInterval: number;
+    id: number;
     appearing: boolean;
     vanishing: boolean;
+    scale: number;
+    color?: THREE.Color;
 }
 
 interface Fruit {
@@ -139,9 +144,10 @@ export class Grid {
     public mesh: THREE.Group;
     private width: number = 100; // Will be set on resize
     private depth: number = 100; // Will be set on resize
-    private obstacles: Obstacle[] = [];
-    private fruits: Fruit[] = [];
 
+    private organisms: Organism[] = [];
+    private fruits: Fruit[] = [];
+    private nextOrganismId = 0;
 
 
     private bgMaterial: THREE.ShaderMaterial; // Store to update uniforms
@@ -172,7 +178,8 @@ export class Grid {
         while (this.mesh.children.length > 0) {
             this.mesh.remove(this.mesh.children[0]);
         }
-        this.obstacles = [];
+        this.organisms = [];
+        this.nextOrganismId = 0;
         this.fruits = [];
         this.occupiedCells.clear();
 
@@ -184,7 +191,9 @@ export class Grid {
         plane.receiveShadow = true;
         this.mesh.add(plane);
 
-        // this.createGridLines();
+        if (this.showDebug) {
+            this.createDebugMesh();
+        }
     }
 
 
@@ -194,50 +203,58 @@ export class Grid {
         this.bgMaterial.uniforms.uTime.value += dt;
 
         // 1. Manage Obstacles
-        const totalCells = (this.width / CONFIG.GRID.CELL_SIZE) * (this.depth / CONFIG.GRID.CELL_SIZE);
-        const targetCount = Math.floor(totalCells * CONFIG.GRID.TARGET_OBSTACLE_DENSITY);
-
-        // Decay & Animate existing
-        const animSpeed = 4.0;
-        for (let i = this.obstacles.length - 1; i >= 0; i--) {
-            const obs = this.obstacles[i];
-
-            // Lifecycle
-            if (!obs.vanishing) {
-                obs.ttl -= dt;
-                if (obs.ttl <= 0) {
-                    obs.vanishing = true;
-                }
-            }
-
-            // Animation State
-            let uAppear = 0;
-            if (obs.mesh.material instanceof THREE.ShaderMaterial) {
-                uAppear = obs.mesh.material.uniforms.uAppear.value;
-                obs.mesh.material.uniforms.uTime.value += dt;
-            }
-
-            if (obs.appearing) {
-                uAppear += dt * animSpeed;
-                if (uAppear >= 1.0) { uAppear = 1.0; obs.appearing = false; }
-            } else if (obs.vanishing) {
-                uAppear -= dt * animSpeed;
-                if (uAppear <= 0.0) {
-                    this.removeObstacle(i);
-                    continue;
-                }
-            } else {
-                uAppear = 1.0;
-            }
-
-            if (obs.mesh.material instanceof THREE.ShaderMaterial) {
-                obs.mesh.material.uniforms.uAppear.value = uAppear;
-            }
-        }
+        // 1. Manage Organisms (Dynamic Enemies)
+        const targetCount = 6; // Max organisms
 
         // Spawn new
-        if (this.obstacles.length < targetCount) {
-            this.spawnObstacle(snakePath);
+        if (this.organisms.length < targetCount) {
+            this.spawnOrganism(snakePath);
+        }
+
+        // Update Organisms
+        for (let i = this.organisms.length - 1; i >= 0; i--) {
+            const org = this.organisms[i];
+
+            // Movement Logic
+            org.moveTimer += dt;
+            if (org.moveTimer > org.moveInterval) {
+                org.moveTimer = 0;
+
+                // Determine Move
+                // 30% chance to change direction even if not blocked (Chaotic)
+                if (Math.random() < 0.3) {
+                    this.pickNewDirection(org);
+                }
+
+                let head = org.segments[0];
+                let nextX = head.x + org.direction.x;
+                let nextZ = head.z + org.direction.z;
+
+                // Validate Move
+                if (!this.isValidMove(nextX, nextZ, snakePath)) {
+                    // Try to pick new direction
+                    this.pickNewDirection(org);
+                    // Try again
+                    nextX = head.x + org.direction.x;
+                    nextZ = head.z + org.direction.z;
+                }
+
+                if (this.isValidMove(nextX, nextZ, snakePath)) {
+                    // Move
+                    // Add Head
+                    org.segments.unshift({ x: nextX, z: nextZ });
+                    this.occupiedCells.add(`${nextX},${nextZ}`);
+
+                    // Remove Tail (Max Length 5)
+                    if (org.segments.length > 5) {
+                        const tail = org.segments.pop()!;
+                        this.occupiedCells.delete(`${tail.x},${tail.z}`);
+                    }
+                }
+            }
+
+            // Update Visuals
+            org.visuals.update(org.segments, dt);
         }
 
         // 2. Manage Fruit
@@ -255,129 +272,93 @@ export class Grid {
             }
         });
 
-
+        this.updateDebug(snakePath);
     }
 
-    private spawnObstacle(snakePath: THREE.Vector3[]) {
-        // Obstacle Patterns (Relative offsets)
-        const patterns = [
-            [{ x: 0, z: 0 }], // Single (Fallback/Common)
-            [{ x: 0, z: 0 }],
-            [{ x: 0, z: 0 }, { x: 1, z: 0 }], // H-Line 2
-            [{ x: 0, z: 0 }, { x: 0, z: 1 }], // V-Line 2
-            [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 2, z: 0 }], // H-Line 3
-            [{ x: 0, z: 0 }, { x: 0, z: 1 }, { x: 0, z: 2 }], // V-Line 3
-            [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }], // Corner
-            [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }], // Box
-            [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: -1, z: 0 }, { x: 0, z: 1 }, { x: 0, z: -1 }] // Cross
+    private spawnOrganism(snakePath: THREE.Vector3[]) {
+        // Enforce integer grid coordinates
+        // Width/Depth might be floats due to Aspect Ratio
+        const gridW = Math.floor(this.width);
+        const gridD = Math.floor(this.depth);
+
+        for (let attempt = 0; attempt < 50; attempt++) {
+            // Random Integer Coordinate within [-W/2 + 2, W/2 - 2]
+            const kx = Math.floor(Math.random() * (gridW - 4)) - Math.floor(gridW / 2) + 2;
+            const kz = Math.floor(Math.random() * (gridD - 4)) - Math.floor(gridD / 2) + 2;
+
+            if (this.occupiedCells.has(`${kx},${kz}`)) continue;
+            // Snake Distance Check
+            if (snakePath.length > 0) {
+                const dx = kx - snakePath[0].x;
+                const dz = kz - snakePath[0].z;
+                if (Math.sqrt(dx * dx + dz * dz) < 8) continue; // Reduced from 15 to 8
+            }
+            if (this.occupiedCells.has(`${kx},${kz}`)) continue;
+
+            const tempSegments = [{ x: kx, z: kz }];
+
+            // Commit immediately (Start at length 1 and grow)
+            this.occupiedCells.add(`${kx},${kz}`);
+
+            const visuals = new OrganismVisuals();
+            visuals.update(tempSegments, 0);
+            this.mesh.add(visuals.mesh);
+
+            this.organisms.push({
+                id: this.nextOrganismId++,
+                segments: tempSegments,
+                direction: { x: 0, z: 0 },
+                moveTimer: 0,
+                moveInterval: 0.15 + Math.random() * 0.2,
+                visuals: visuals,
+                appearing: true,
+                vanishing: false,
+                scale: 0.0,
+            });
+
+            this.pickNewDirection(this.organisms[this.organisms.length - 1]);
+            // console.log(`[Grid] Spawned Organism ID ${this.organisms[this.organisms.length-1].id} at ${kx},${kz}`);
+            return;
+        }
+        console.warn("[Grid] Failed to spawn organism of sufficient length after 50 attempts.");
+    }
+
+    private pickNewDirection(org: Organism) {
+        const dirs = [
+            { x: 1, z: 0 }, { x: -1, z: 0 },
+            { x: 0, z: 1 }, { x: 0, z: -1 }
         ];
-
-        // Weighted pick
-        const pattern = patterns[Math.floor(Math.random() * patterns.length)];
-
-        // Try to place pattern (Partial allowed)
-        for (let attempt = 0; attempt < 10; attempt++) {
-            const halfW = this.width / 2;
-            const halfD = this.depth / 2;
-
-            // Random root
-            const kx = Math.floor(Math.random() * this.width) - halfW;
-            const kz = Math.floor(Math.random() * this.depth) - halfD;
-
-            const pointsToSpawn: { x: number, z: number }[] = [];
-
-            for (const p of pattern) {
-                const tx = kx + p.x;
-                const tz = kz + p.z;
-
-                // Bounds Check
-                if (tx <= -halfW || tx >= halfW || tz <= -halfD || tz >= halfD) {
-                    continue;
-                }
-
-                // Occupation Check
-                if (this.occupiedCells.has(`${tx},${tz}`)) {
-                    continue;
-                }
-
-                // Fruits Check
-                let hitFruit = false;
-                for (const f of this.fruits) {
-                    if (Math.round(f.x) === tx && Math.round(f.z) === tz) {
-                        hitFruit = true; break;
-                    }
-                }
-                if (hitFruit) continue;
-
-                // Snake Distance Check (Clearance 5)
-                let tooClose = false;
-                for (let i = 0; i < snakePath.length; i += 2) {
-                    const sp = snakePath[i];
-                    const dist = Math.sqrt((tx - sp.x) ** 2 + (tz - sp.z) ** 2);
-                    if (dist < 5) { tooClose = true; break; }
-                }
-                if (tooClose) continue;
-
-                // If passed all checks, this specific point is valid
-                pointsToSpawn.push({ x: tx, z: tz });
-            }
-
-            // If we found ANY valid spots in this pattern attempt, spawn them.
-            if (pointsToSpawn.length > 0) {
-                const ttl = Math.random() * 20 + 20;
-
-                for (const pt of pointsToSpawn) {
-                    const mesh = ObstacleVisuals.createObstacleMesh();
-                    mesh.position.set(pt.x, 0.1, pt.z);
-                    mesh.scale.set(CONFIG.GRID.CELL_SIZE, CONFIG.GRID.CELL_SIZE, 1.0);
-
-                    mesh.castShadow = true;
-                    mesh.receiveShadow = true;
-                    this.mesh.add(mesh);
-
-                    this.obstacles.push({
-                        x: pt.x,
-                        z: pt.z,
-                        mesh: mesh,
-                        ttl: ttl,
-                        mask: 0,
-                        appearing: true,
-                        vanishing: false
-                    });
-                    this.occupiedCells.add(`${Math.round(pt.x)},${Math.round(pt.z)}`);
-                }
-                this.updateObstacleVisuals();
-                return; // Made progress
-            }
+        // Bias towards current direction (Inertia)
+        if (Math.random() < 0.7 && (org.direction.x !== 0 || org.direction.z !== 0)) {
+            // Keep going
+            return;
         }
+        org.direction = dirs[Math.floor(Math.random() * dirs.length)];
     }
 
-    private updateObstacleVisuals() {
-        for (const obs of this.obstacles) {
-            const x = Math.round(obs.x);
-            const z = Math.round(obs.z);
-            let mask = 0;
+    private isValidMove(x: number, z: number, snakePath: THREE.Vector3[]): boolean {
+        // Bounds
+        const halfW = this.width / 2;
+        const halfD = this.depth / 2;
+        // Padding from wall
+        if (x <= -halfW + 1 || x >= halfW - 1 || z <= -halfD + 1 || z >= halfD - 1) return false;
 
-            // Check Neighbors (North: z-1, East: x+1, South: z+1, West: x-1)
-            // Assumes Z decreases North
-            if (this.occupiedCells.has(`${x},${z - 1}`)) mask |= 1; // North
-            if (this.occupiedCells.has(`${x + 1},${z}`)) mask |= 2; // East
-            if (this.occupiedCells.has(`${x},${z + 1}`)) mask |= 4; // South
-            if (this.occupiedCells.has(`${x - 1},${z}`)) mask |= 8; // West
+        // Occupied
+        if (this.occupiedCells.has(`${x},${z}`)) return false;
 
-            obs.mask = mask;
-            if (obs.mesh.material instanceof THREE.ShaderMaterial) {
-                obs.mesh.material.uniforms.uMask.value = mask;
-            }
+        // Snake Path Check (Collision)
+        for (const sp of snakePath) {
+            const dx = Math.abs(sp.x - x);
+            const dz = Math.abs(sp.z - z);
+            if (dx < 0.8 && dz < 0.8) return false;
         }
-    }
 
-    private removeObstacle(index: number) {
-        const obs = this.obstacles[index];
-        this.mesh.remove(obs.mesh);
-        this.occupiedCells.delete(`${Math.round(obs.x)},${Math.round(obs.z)}`);
-        this.obstacles.splice(index, 1);
-        this.updateObstacleVisuals();
+        // Fruits
+        for (const f of this.fruits) {
+            if (Math.round(f.x) === x && Math.round(f.z) === z) return false;
+        }
+
+        return true;
     }
 
     private spawnFruit(snakePath: THREE.Vector3[]) {
@@ -402,35 +383,37 @@ export class Grid {
     }
 
     public isPositionBlocked(x: number, z: number, radius: number): boolean {
-        // Wall
+        // Bounds check (World is centered at 0,0)
         const halfW = this.width / 2;
         const halfD = this.depth / 2;
 
-        // Boundary check. Snake center must be within bounds minus radius? 
-        // User said "move based on float". Usually center must stay inside or at least not go fully out.
-        // Let's constrain center inside limits - radius.
         if (x < -halfW + radius || x > halfW - radius || z < -halfD + radius || z > halfD - radius) {
             return true;
         }
 
-        // Obstacles
-        // Obstacles are at integer coords (implicit). Actually my code stores them at float 'obs.x'.
-        // But they are spawned at integer+0.5 coords. 
-        // Size: ~0.9 (BoxGeometry).
-        // Collision: Circle (x,z, radius) vs AABB (obs.x, obs.z, size).
+        // Check occupied cells (Organisms)
+        // Widen search to ensure fast moving snake doesn't skip (Paranoid padding)
+        const padding = 1.0;
+        const minIX = Math.floor(x - radius - padding);
+        const maxIX = Math.ceil(x + radius + padding);
+        const minIZ = Math.floor(z - radius - padding);
+        const maxIZ = Math.ceil(z + radius + padding);
 
-        const obsHalfSize = (CONFIG.GRID.CELL_SIZE * 0.9) / 2;
+        for (let ix = minIX; ix <= maxIX; ix++) {
+            for (let iz = minIZ; iz <= maxIZ; iz++) {
+                if (this.occupiedCells.has(`${ix},${iz}`)) {
+                    // Box-Circle collision
+                    const cellR = 0.45;
+                    const closestX = Math.max(ix - cellR, Math.min(x, ix + cellR));
+                    const closestZ = Math.max(iz - cellR, Math.min(z, iz + cellR));
 
-        for (const obs of this.obstacles) {
-            const closestX = Math.max(obs.x - obsHalfSize, Math.min(x, obs.x + obsHalfSize));
-            const closestZ = Math.max(obs.z - obsHalfSize, Math.min(z, obs.z + obsHalfSize));
+                    const dx = x - closestX;
+                    const dz = z - closestZ;
 
-            const distanceX = x - closestX;
-            const distanceZ = z - closestZ;
-
-            const distanceSq = (distanceX * distanceX) + (distanceZ * distanceZ);
-            if (distanceSq < (radius * radius)) {
-                return true;
+                    if ((dx * dx + dz * dz) < (radius * radius)) {
+                        return true;
+                    }
+                }
             }
         }
         return false;
@@ -439,12 +422,13 @@ export class Grid {
     public handleFruitCollection(x: number, z: number, radius: number): boolean {
         const fruitRadius = (CONFIG.GRID.CELL_SIZE * CONFIG.FRUIT.SIZE_CELLS) * 0.4;
 
-        for (let i = this.fruits.length - 1; i >= 0; i--) {
+        for (let i = 0; i < this.fruits.length; i++) {
             const f = this.fruits[i];
-            const dist = Math.sqrt((x - f.x) ** 2 + (z - f.z) ** 2);
-
-            if (dist < radius + fruitRadius) {
-                // Remove fruit
+            // Distance check 2D
+            const dx = x - f.x;
+            const dz = z - f.z;
+            if (dx * dx + dz * dz < (radius + fruitRadius) ** 2) {
+                // Collected!
                 this.mesh.remove(f.mesh);
                 this.fruits.splice(i, 1);
                 return true;
@@ -452,6 +436,122 @@ export class Grid {
         }
         return false;
     }
+
+    // --- DEBUG RENDERING ---
+    private debugMesh: THREE.InstancedMesh | null = null;
+    private showDebug: boolean = false;
+    private dummy = new THREE.Object3D();
+    private _colEmpty = new THREE.Color(0.2, 0.2, 0.2);
+    private _colSnake = new THREE.Color(0.0, 1.0, 0.0);
+    private _colFruit = new THREE.Color(1.0, 1.0, 0.0);
+    private _colObs = new THREE.Color(1.0, 0.0, 1.0);
+
+    private createDebugMesh() {
+        if (this.debugMesh) {
+            this.mesh.remove(this.debugMesh);
+            this.debugMesh.dispose();
+        }
+
+        const startX = Math.ceil(-this.width / 2);
+        const endX = Math.floor(this.width / 2);
+        const startZ = Math.ceil(-this.depth / 2);
+        const endZ = Math.floor(this.depth / 2);
+
+        const cols = (endX - startX) + 1;
+        const rows = (endZ - startZ) + 1;
+        const count = cols * rows;
+
+        console.log(`[Grid] Create Debug Mesh: ${cols}x${rows} = ${count} instances.`);
+
+        // Small squares
+        const geometry = new THREE.PlaneGeometry(0.8, 0.8);
+        geometry.rotateX(-Math.PI / 2);
+
+        const material = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.3,
+            depthTest: false // Render on top
+        });
+
+        this.debugMesh = new THREE.InstancedMesh(geometry, material, count);
+        this.debugMesh.renderOrder = 999;
+        this.debugMesh.position.y = 0.5; // Float above everything
+        this.mesh.add(this.debugMesh);
+        console.log(`[Grid] Debug Mesh added to scene.`);
+    }
+
+    private updateDebug(snakePath: THREE.Vector3[]) {
+        if (!this.showDebug || !this.debugMesh) return;
+
+        // console.log(`[Grid] Updating Debug... SnakeLen: ${snakePath.length}`); // Verbose
+
+        const startX = Math.ceil(-this.width / 2);
+        const endX = Math.floor(this.width / 2);
+        const startZ = Math.ceil(-this.depth / 2);
+        const endZ = Math.floor(this.depth / 2);
+
+        let i = 0;
+        let obsCount = 0;
+
+        for (let z = startZ; z <= endZ; z++) {
+            for (let x = startX; x <= endX; x++) {
+                this.dummy.position.set(x, 0, z);
+                this.dummy.updateMatrix();
+                this.debugMesh.setMatrixAt(i, this.dummy.matrix);
+
+                // Determine Color
+                let color = this._colEmpty;
+
+                // 1. Obstacle?
+                // Normalize key to ensure match (paranoia)
+                // Keys are "${x},${z}"
+                // If x is -0, it might be "0" or "-0"? Math.ceil/floor usually gives 0.
+                // But let's check.
+                if (this.occupiedCells.has(`${x},${z}`)) {
+                    color = this._colObs;
+                    obsCount++; // Count found
+                }
+
+                // 2. Fruit?
+                for (const f of this.fruits) {
+                    if (Math.round(f.x) === x && Math.round(f.z) === z) {
+                        color = this._colFruit;
+                        break;
+                    }
+                }
+
+                // 3. Snake? (Override others)
+                // Check distance to snake path segments
+                for (let k = 0; k < snakePath.length; k++) {
+                    const sp = snakePath[k];
+                    // Simple discrete check
+                    if (Math.round(sp.x) === x && Math.round(sp.z) === z) {
+                        color = this._colSnake;
+                        break;
+                    }
+                }
+
+                this.debugMesh.setColorAt(i, color);
+                i++;
+            }
+        }
+
+        // Debug Log occasionally
+        if (Math.random() < 0.01) { // 1% of frames
+            console.log(`[Grid] Debug Scan: Found ${obsCount} occupied cells.`);
+            console.log(`[Grid] Organisms: ${this.organisms.length}. Occupied Set Size: ${this.occupiedCells.size}`);
+            if (this.occupiedCells.size > 0 && obsCount === 0) {
+                // Key mismatch?
+                const firstKey = this.occupiedCells.values().next().value;
+                console.warn(`[Grid] MISMATCH! Set has keys (e.g. "${firstKey}") but grid loop found none. Loop range: X[${startX}, ${endX}] Z[${startZ}, ${endZ}]`);
+            }
+        }
+
+        this.debugMesh.instanceMatrix.needsUpdate = true;
+        if (this.debugMesh.instanceColor) this.debugMesh.instanceColor.needsUpdate = true;
+    }
+
 
     private getRandomEmptyRegion(snakePath: THREE.Vector3[], bboxRadius: number, regionSizeCells: number): { x: number, z: number } | null {
         // Try N times to find a spot
