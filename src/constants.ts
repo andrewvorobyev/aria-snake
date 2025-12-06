@@ -7,7 +7,7 @@ export const CONFIG = {
     },
     SNAKE: {
         INITIAL_LENGTH: 15,
-        SPEED: 5,
+        SPEED: 10,
         CIRCLE_RADIUS: 0.75, // Radius of the snake's body segments
         PULSE_SPEED: 4.0, // Speed of the pulsing animation
         PULSE_AMPLITUDE: 0.05, // Amplitude of body size fluctuation

@@ -253,16 +253,37 @@ export class SnakeVisuals {
 
         if (snakePath.length > 0) {
             visualPoints.push(new THREE.Vector2(snakePath[0].x, snakePath[0].z));
-            let lastP = snakePath[0];
 
-            for (let i = 1; i < snakePath.length; i++) {
+            let currentPathDist = 0;
+            let nextBlobDist = 0.9;
+
+            for (let i = 0; i < snakePath.length - 1; i++) {
                 if (visualPoints.length >= maxBlobs) break;
 
-                const p = snakePath[i];
-                if (p.distanceTo(lastP) > 0.9) {
-                    visualPoints.push(new THREE.Vector2(p.x, p.z));
-                    lastP = p;
+                const p1 = snakePath[i];
+                const p2 = snakePath[i + 1];
+                const segLen = p1.distanceTo(p2);
+
+                // If segment length is tiny, skip to avoid division by zero issues
+                if (segLen < 0.0001) continue;
+
+                while (currentPathDist + segLen >= nextBlobDist) {
+                    if (visualPoints.length >= maxBlobs) break;
+
+                    // Calculate interpolation factor
+                    const distOnSeg = nextBlobDist - currentPathDist;
+                    const alpha = distOnSeg / segLen;
+
+                    // Interpolate
+                    const interpX = p1.x + (p2.x - p1.x) * alpha;
+                    const interpZ = p1.z + (p2.z - p1.z) * alpha;
+
+                    visualPoints.push(new THREE.Vector2(interpX, interpZ));
+
+                    nextBlobDist += 0.9;
                 }
+
+                currentPathDist += segLen;
             }
         }
 
