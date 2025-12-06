@@ -39,6 +39,11 @@ export const CONFIG = {
     FRUIT: {
         SIZE_CELLS: 3,
         TARGET_COUNT: 5,
+        VIRUS: {
+            ARMS: { MIN: 3, MAX: 7 },
+            ARM_LENGTH: { MIN: 0.2, MAX: 0.6 },
+            PULSE_SPEED: 2.0
+        }
     },
     CAMERA: {
         FOV: 60,
