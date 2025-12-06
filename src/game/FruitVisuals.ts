@@ -57,31 +57,47 @@ float snoise(vec2 v) {
     return 130.0 * dot(m, g);
 }
 
+float fbm(vec2 p) {
+    float f = 0.0;
+    float w = 0.5;
+    for (int i = 0; i < 4; i++) {
+        f += w * snoise(p);
+        p *= 2.0;
+        w *= 0.5;
+    }
+    return f;
+}
+
 void main() {
     vec2 p = vUv * 2.0 - 1.0;
     p *= 1.1;
 
-    // Animation: Bobbing & Wiggle
-    vec2 wiggle = vec2(sin(uTime * 3.0 + p.y * 2.0), cos(uTime * 2.5 + p.x * 3.0)) * 0.03;
-    p += wiggle;
-
-    // TEXTURE MODE (Always active now)
+    // Animation: Bobbing & Wiggle (Restored)
+    vec2 wiggle = vec2(sin(uTime * 3.0 + p.y*2.0), cos(uTime * 2.5 + p.x*3.0)) * 0.03;
+    p += wiggle; 
+    
+    // TEXTURE MODE
     if (uHasMap) {
         vec2 uv = vUv;
         uv += wiggle * 0.5; // Flowy UVs
         
         vec4 tex = texture2D(uMap, uv);
-
-        // Boost Color (Intense!)
-        vec3 finalColor = tex.rgb * 1.5;
-
-        // Add subtle rim/noise tint
-        float n = snoise(p * 5.0 + uTime);
-        finalColor += n * 0.1 * uColor; 
+        
+        // Enhance Color (Contrast + Brightness)
+        vec3 finalColor = pow(tex.rgb, vec3(1.2)) * 1.5;
+        
+        // --- ADVANCED NOISE ---
+        float n = fbm(p * 4.0 + uTime * 0.5); // Structural Noise
+        float grain = snoise(uv * 40.0 + uTime * 10.0); // High freq Grit
+        
+        // Apply Noise Mix
+        vec3 noiseTint = uColor * n * 0.5; // Strong tinted structure
+        finalColor += noiseTint;
+        finalColor += vec3(grain) * 0.15; // Grit overlay
         
         float alpha = tex.a;
-        if (alpha < 0.01) discard;
-
+        if (alpha < 0.1) discard; // Keep clean edge
+        
         gl_FragColor = vec4(finalColor, alpha);
     } else {
         // Fallback placeholder (Circle)
