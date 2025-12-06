@@ -93,7 +93,7 @@ export async function extractAlphaTwoPass(
 
 // Minimal runner
 (async () => {
-    // Look for matching files in assets/raw that end with _black.jpg/png and _white.jpg/png
+    // Look for matching files in assets/raw that end with -black.jpg/png and -white.jpg/png
     const rawDir = path.resolve(process.cwd(), 'assets/raw');
     const outDir = path.resolve(process.cwd(), 'assets/ready');
 
@@ -103,33 +103,57 @@ export async function extractAlphaTwoPass(
     } catch { }
 
     try {
-        const files = await fs.readdir(rawDir);
-        // Find pairs (e.g. apple_black.jpg, apple_white.jpg)
-        // Group by base name
-        const bases = new Set<string>();
-        files.forEach(f => {
-            if (f.includes('_black.')) bases.add(f.split('_black.')[0]);
-            if (f.includes('_white.')) bases.add(f.split('_white.')[0]);
-        });
+        // Filter out hidden files like .DS_Store
+        const files = (await fs.readdir(rawDir)).filter(f => !f.startsWith('.'));
 
-        for (const base of bases) {
-            console.log(`Processing ${base}...`);
-            // Attempt extensions
-            const blackName = files.find(f => f.startsWith(base + '_black.'));
-            const whiteName = files.find(f => f.startsWith(base + '_white.'));
+        const pairs = new Map<string, { black?: string; white?: string }>();
 
-            if (blackName && whiteName) {
-                const pBlack = path.join(rawDir, blackName);
-                const pWhite = path.join(rawDir, whiteName);
-                const pOut = path.join(outDir, base + '.png');
+        // 1. Scan and Validate Filenames
+        for (const f of files) {
+            const ext = path.extname(f);
+            // Supported extensions check? assume valid images for now.
+            const name = path.basename(f, ext); // e.g. "kiwi-black"
 
-                await extractAlphaTwoPass(pWhite, pBlack, pOut);
-                console.log(`Saved ${pOut}`);
+            let base = "";
+            let type = "";
+
+            if (name.endsWith('-black')) {
+                base = name.substring(0, name.length - '-black'.length);
+                type = 'black';
+            } else if (name.endsWith('-white')) {
+                base = name.substring(0, name.length - '-white'.length);
+                type = 'white';
             } else {
-                console.warn(`Skipping ${base}: missing pair (Black: ${blackName}, White: ${whiteName})`);
+                // Strict assertion fail
+                throw new Error(`File '${f}' does not match expected pattern '*-black${ext}' or '*-white${ext}'`);
             }
+
+            if (!pairs.has(base)) {
+                pairs.set(base, {});
+            }
+            const entry = pairs.get(base)!;
+            if (type === 'black') entry.black = f;
+            else entry.white = f;
         }
+
+        // 2. Process Pairs
+        for (const [base, pair] of pairs) {
+            if (!pair.black || !pair.white) {
+                throw new Error(`Missing pair for '${base}': Found black='${pair.black}', white='${pair.white}'`);
+            }
+
+            console.log(`Processing ${base}...`);
+            const pBlack = path.join(rawDir, pair.black);
+            const pWhite = path.join(rawDir, pair.white);
+            const pOut = path.join(outDir, base + '.png');
+
+            await extractAlphaTwoPass(pWhite, pBlack, pOut);
+            console.log(`Saved ${pOut}`);
+        }
+        console.log("Success.");
+
     } catch (e) {
         console.error("Error processing:", e);
+        process.exit(1);
     }
 })();
