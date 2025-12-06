@@ -24,10 +24,74 @@ uniform int uPointCount;
 uniform float uTime;
 uniform float uRadius;
 
-// Exponential Smooth Min (Soft Min)
-float sminExp(float a, float b, float k) {
-    float res = exp(-k * a) + exp(-k * b);
-    return -log(res) / k;
+// --- NOISE FUNCTIONS ---
+vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
+
+// Simplex Noise (2D)
+float snoise(vec2 v) {
+    const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
+    vec2 i  = floor(v + dot(v, C.yy) );
+    vec2 x0 = v -   i + dot(i, C.xx);
+    vec2 i1;
+    i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+    vec4 x12 = x0.xyxy + C.xxzz;
+    x12.xy -= i1;
+    i = mod289(i);
+    vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 )) + i.x + vec3(0.0, i1.x, 1.0 ));
+    vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+    m = m*m ;
+    m = m*m ;
+    vec3 x = 2.0 * fract(p * C.www) - 1.0;
+    vec3 h = abs(x) - 0.5;
+    vec3 ox = floor(x + 0.5);
+    vec3 a0 = x - ox;
+    m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
+    vec3 g;
+    g.x  = a0.x  * x0.x  + h.x  * x0.y;
+    g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+    return 130.0 * dot(m, g);
+}
+
+// Voronoi / Cellular Noise
+float cellular(vec2 P) {
+    const float K = 0.142857142857; // 1/7
+    const float K2 = 0.0714285714286; // K/2
+    const float jitter = 0.8;
+    
+    vec2 Pi = mod(floor(P), 289.0);
+    vec2 Pf = fract(P);
+    vec3 oi = vec3(-1.0, 0.0, 1.0);
+    vec3 of = vec3(-0.5, 0.5, 1.5);
+    vec3 px = permute(Pi.x + oi);
+    vec3 p = permute(px.x + Pi.y + oi); // p11, p12, p13
+    vec3 ox = fract(p*K) - K2;
+    vec3 oy = mod(floor(p*K),7.0)*K - K2;
+    vec3 dx = Pf.x - 0.5 + jitter*ox;
+    vec3 dy = Pf.y - of + jitter*oy;
+    vec3 d1 = dx * dx + dy * dy; // d11, d12, d13
+    
+    p = permute(px.y + Pi.y + oi); // p21, p22, p23
+    ox = fract(p*K) - K2;
+    oy = mod(floor(p*K),7.0)*K - K2;
+    dx = Pf.x - 1.5 + jitter*ox;
+    dy = Pf.y - of + jitter*oy; // Reuse dy
+    vec3 d2 = dx * dx + dy * dy; // d21, d22, d23
+    
+    p = permute(px.z + Pi.y + oi); // p31, p32, p33
+    ox = fract(p*K) - K2;
+    oy = mod(floor(p*K),7.0)*K - K2;
+    dx = Pf.x - 0.5 + jitter*ox;
+    dy = Pf.y - of + jitter*oy; // Reuse dy
+    vec3 d3 = dx * dx + dy * dy; // d31, d32, d33
+    
+    vec3 d1a = min(d1, d2);
+    d2 = max(d1, d2);
+    d2 = min(d2, d3);
+    d1 = min(d1a, d3);
+    d1.x = min(d1.x, d1.y);
+    return sqrt(d1.x); // F1
 }
 
 vec3 hsv2rgb(vec3 c) {
@@ -38,61 +102,120 @@ vec3 hsv2rgb(vec3 c) {
 
 void main() {
     vec2 p = vWorldPosition.xz;
+    float k = 4.0; 
     
-    float k = 5.0; // Sharper blending to handle larger radii without losing shape
-    
+    // Accumulators
     float expSum = 0.0;
     vec3 colorSum = vec3(0.0);
+    float bumpSum = 0.0;
     float weightSum = 0.0;
     
     for (int i = 0; i < ${MAX_POINTS}; i++) {
         if (i >= uPointCount) break;
         
-        // Per-blob Radius Calculation
         float pointRadius;
-        
         if (i == 0) {
             pointRadius = 0.75; 
         } else {
-            // Body: 0.8 to 1.2x Head Size (0.6 to 0.9)
-            // Traveling pulse wave
             float wave = sin(uTime * 5.0 - float(i) * 0.5);
-            // Map wave (-1..1) to (0.6..0.9) -> Center 0.75, Amp 0.15
             pointRadius = ${CONFIG.SNAKE.CIRCLE_RADIUS} + wave * ${CONFIG.SNAKE.PULSE_AMPLITUDE}; 
         }
         
-        float dist = length(p - uPoints[i]) - pointRadius;
+        vec2 diff = p - uPoints[i];
+        float dist = length(diff) - pointRadius;
+        float w = exp(-k * dist);
         
-        // Accumulate for Soft Min
-        float w = exp(-k * dist * 1.0); // Adjusted blend weight
+        // --- 1. Texture moves with body ---
+        // Use local coordinate 'diff' for noise lookup
+        // This makes the texture 'stick' to each blob
+        float localBump = cellular(diff * 4.0 + float(i)*13.0); // Offset noise per blob to avoid uniformity
         
+        // --- Color ---
         float t = float(i) / float(max(uPointCount, 1));
         float hue = fract(t * 1.0 - uTime * 0.1); 
-        vec3 col = hsv2rgb(vec3(hue, 0.85, 1.0));
+        vec3 col = hsv2rgb(vec3(hue, 0.7, 1.0));
         
         colorSum += col * w;
+        bumpSum += localBump * w;
         weightSum += w;
-        
-        expSum += exp(-k * dist);
+        expSum += w;
     }
     
-    float d = -log(expSum) / k;
+    float invK = 1.0 / k;
+    float d = -log(expSum) * invK;
     
-    if (d > 0.0) discard; // Strict surface at distance field = 0
+    // Normalize Weighted Data
+    // Protection against zero weight
+    float normFactor = 1.0 / max(weightSum, 0.00001);
+    vec3 baseColor = colorSum * normFactor;
+    float baseBump = bumpSum * normFactor;
     
-    vec3 finalColor = colorSum / max(weightSum, 0.00001);
+    // --- 2. Explicit Spines / Cilia (Edge Noise) ---
+    // Perturb the distance field 'd' with high frequency noise to create jagged edges
+    // Use World position 'p' for this so the spines stay fixed in space? 
+    // Or move with snake? Let's fix in space for "moving through fields" look? 
+    // User said "texture moves... spines explicit".
+    // Usually spines are attached.
+    // Let's use 'p' but animated.
+    float spineNoise = snoise(p * 15.0 - uTime * 2.0); // High freq
+    float spineStr = 0.15;
     
-    // Height map for lighting (d is negative inside)
-    float height = smoothstep(-uRadius, 0.0, d);
-    height = 1.0 - height;
+    // Modulate d
+    // Only affect the surface (d near 0)
+    d += spineNoise * spineStr;
+
+    if (d > 0.0) discard; 
     
-    // Simple Lighting
-    finalColor *= mix(0.7, 1.1, height);
+    // --- 3. Lighting & Surface ---
     
-    // Specular
-    float spec = smoothstep(0.7, 0.9, height); // Broader specular
-    finalColor += vec3(1.0) * spec * 0.4;
+    // Normal Calc using perturbed d
+    // We can't easily differentiate 'spineNoise' analytically without recomputing.
+    // Using dFdx/dFdy on 'd' handles the spine perturbation automatically!
     
+    vec3 dx = dFdx(vec3(d, p.x, p.y));
+    vec3 dy = dFdy(vec3(d, p.x, p.y));
+    vec2 slope = vec2(dFdx(d), dFdy(d)) * 50.0; // Scale up for visibility
+    
+    // 3. Bump Map (Cellular Noise)
+    // Scale coords for detailed texture
+    vec2 noiseUV = p * 4.0; 
+    float bump = snoise(noiseUV + uTime * 0.2);
+    // Add fine detail
+    float detail = snoise(noiseUV * 3.0 - uTime * 0.1);
+    
+    float totalBump = bump * 0.5 + detail * 0.2;
+    
+    // Perturb slope
+    slope += vec2(dFdx(totalBump), dFdy(totalBump)) * 10.0; // Bump Strength
+    
+    // Reconstruct Normal
+    vec3 normal = normalize(vec3(slope.x, slope.y, 1.0));
+    
+    // 4. Lighting Calculation
+    vec3 lightDir = normalize(vec3(0.5, 0.5, 1.0));
+    vec3 viewDir = vec3(0.0, 0.0, 1.0); // Ortho top-down view matches Z
+    
+    // Diffuse (Wrap around)
+    float ndl = dot(normal, lightDir);
+    float diffuse = max(0.0, ndl * 0.5 + 0.5); // Half-Lambert
+    
+    // Specular (Wet look)
+    vec3 halfVec = normalize(lightDir + viewDir);
+    float spec = pow(max(0.0, dot(normal, halfVec)), 64.0);
+    
+    // Rim Light (Fresnel)
+    float rim = 1.0 - max(0.0, dot(normal, viewDir));
+    rim = pow(rim, 3.0);
+    
+    // Combine
+    vec3 finalColor = baseColor * (diffuse * 0.8 + 0.2); // Ambient + Diffuse
+    finalColor += vec3(1.0) * spec * 0.6; // Strong Specular
+    finalColor += vec3(0.5, 0.8, 1.0) * rim * 0.5; // Blue Rim
+    
+    // Subtle internal glow/thickness based on 'd' (d is negative inside)
+    float innerGlow = smoothstep(-0.8, 0.0, d);
+    finalColor += baseColor * innerGlow * 0.3;
+
     gl_FragColor = vec4(finalColor, 1.0);
 }
 `;
