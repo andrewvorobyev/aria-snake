@@ -188,32 +188,7 @@ export class Grid {
         // this.createGridLines();
     }
 
-    private createGridLines() {
-        const material = new THREE.LineBasicMaterial({ color: CONFIG.COLORS.GRID_LINES });
-        const points: THREE.Vector3[] = [];
-        const halfW = this.width / 2;
-        const halfD = this.depth / 2;
 
-        const xLimit = halfW;
-        for (let x = 0.5; x <= xLimit; x += 1.0) {
-            points.push(new THREE.Vector3(x, 0, -halfD));
-            points.push(new THREE.Vector3(x, 0, halfD));
-            points.push(new THREE.Vector3(-x, 0, -halfD));
-            points.push(new THREE.Vector3(-x, 0, halfD));
-        }
-
-        const zLimit = halfD;
-        for (let z = 0.5; z <= zLimit; z += 1.0) {
-            points.push(new THREE.Vector3(-halfW, 0, z));
-            points.push(new THREE.Vector3(halfW, 0, z));
-            points.push(new THREE.Vector3(-halfW, 0, -z));
-            points.push(new THREE.Vector3(halfW, 0, -z));
-        }
-
-        const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        const lines = new THREE.LineSegments(geometry, material);
-        this.mesh.add(lines);
-    }
 
     public update(dt: number, snakePath: THREE.Vector3[]) {
         // Update shader time
@@ -250,21 +225,90 @@ export class Grid {
     }
 
     private spawnObstacle(snakePath: THREE.Vector3[]) {
-        const pos = this.getRandomEmptyCell(snakePath, 5);
-        if (pos) {
-            const mesh = new THREE.Mesh(this.obstacleGeometry, this.obstacleMaterial);
-            mesh.position.set(pos.x, 0.5, pos.z);
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-            this.mesh.add(mesh);
+        // Obstacle Patterns (Relative offsets)
+        const patterns = [
+            [{ x: 0, z: 0 }], // Single (Fallback/Common)
+            [{ x: 0, z: 0 }],
+            [{ x: 0, z: 0 }, { x: 1, z: 0 }], // H-Line 2
+            [{ x: 0, z: 0 }, { x: 0, z: 1 }], // V-Line 2
+            [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 2, z: 0 }], // H-Line 3
+            [{ x: 0, z: 0 }, { x: 0, z: 1 }, { x: 0, z: 2 }], // V-Line 3
+            [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }], // Corner
+            [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }], // Box
+            [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: -1, z: 0 }, { x: 0, z: 1 }, { x: 0, z: -1 }] // Cross
+        ];
 
-            this.obstacles.push({
-                x: pos.x,
-                z: pos.z,
-                mesh: mesh,
-                ttl: Math.random() * 10 + 5
-            });
-            this.occupiedCells.add(`${Math.round(pos.x)},${Math.round(pos.z)}`);
+        // Weighted pick
+        const pattern = patterns[Math.floor(Math.random() * patterns.length)];
+
+        // Try to place pattern (Partial allowed)
+        for (let attempt = 0; attempt < 10; attempt++) {
+            const halfW = this.width / 2;
+            const halfD = this.depth / 2;
+
+            // Random root
+            const kx = Math.floor(Math.random() * this.width) - halfW;
+            const kz = Math.floor(Math.random() * this.depth) - halfD;
+
+            const pointsToSpawn: { x: number, z: number }[] = [];
+
+            for (const p of pattern) {
+                const tx = kx + p.x;
+                const tz = kz + p.z;
+
+                // Bounds Check
+                if (tx <= -halfW || tx >= halfW || tz <= -halfD || tz >= halfD) {
+                    continue;
+                }
+
+                // Occupation Check
+                if (this.occupiedCells.has(`${tx},${tz}`)) {
+                    continue;
+                }
+
+                // Fruits Check
+                let hitFruit = false;
+                for (const f of this.fruits) {
+                    if (Math.round(f.x) === tx && Math.round(f.z) === tz) {
+                        hitFruit = true; break;
+                    }
+                }
+                if (hitFruit) continue;
+
+                // Snake Distance Check (Clearance 5)
+                let tooClose = false;
+                for (let i = 0; i < snakePath.length; i += 2) {
+                    const sp = snakePath[i];
+                    const dist = Math.sqrt((tx - sp.x) ** 2 + (tz - sp.z) ** 2);
+                    if (dist < 5) { tooClose = true; break; }
+                }
+                if (tooClose) continue;
+
+                // If passed all checks, this specific point is valid
+                pointsToSpawn.push({ x: tx, z: tz });
+            }
+
+            // If we found ANY valid spots in this pattern attempt, spawn them.
+            if (pointsToSpawn.length > 0) {
+                const ttl = Math.random() * 20 + 20;
+
+                for (const pt of pointsToSpawn) {
+                    const mesh = new THREE.Mesh(this.obstacleGeometry, this.obstacleMaterial);
+                    mesh.position.set(pt.x, 0.5, pt.z);
+                    mesh.castShadow = true;
+                    mesh.receiveShadow = true;
+                    this.mesh.add(mesh);
+
+                    this.obstacles.push({
+                        x: pt.x,
+                        z: pt.z,
+                        mesh: mesh,
+                        ttl: ttl
+                    });
+                    this.occupiedCells.add(`${Math.round(pt.x)},${Math.round(pt.z)}`);
+                }
+                return; // Made progress
+            }
         }
     }
 
@@ -409,8 +453,5 @@ export class Grid {
         return null;
     }
 
-    // Helper for single cell (kept for obstacles)
-    private getRandomEmptyCell(snakePath: THREE.Vector3[], bboxRadius: number): { x: number, z: number } | null {
-        return this.getRandomEmptyRegion(snakePath, bboxRadius, 1);
-    }
+
 }

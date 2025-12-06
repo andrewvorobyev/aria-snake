@@ -11,7 +11,6 @@ export class Game {
     private snake: Snake;
     private grid: Grid;
     private lastTime: number = 0;
-    private animationId: number = 0;
 
     constructor() {
         this.renderer = new Renderer('app');
@@ -48,7 +47,7 @@ export class Game {
         this.update(dt);
         this.renderer.render();
 
-        this.animationId = requestAnimationFrame(this.loop.bind(this));
+        requestAnimationFrame(this.loop.bind(this));
     }
 
     private update(dt: number) {
