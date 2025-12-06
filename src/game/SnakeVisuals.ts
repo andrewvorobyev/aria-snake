@@ -333,7 +333,7 @@ export class SnakeVisuals {
         this.material.uniforms.uEatTime.value = this.eatTimer;
 
         const visualPoints: THREE.Vector2[] = [];
-        const maxBlobs = CONFIG.SNAKE.INITIAL_LENGTH;
+
 
         if (snakePath.length > 0) {
             visualPoints.push(new THREE.Vector2(snakePath[0].x, snakePath[0].z));
