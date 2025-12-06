@@ -337,10 +337,10 @@ export class Grid {
 
     private updateSnakePhysics(snakePath: THREE.Vector3[]) {
         // Pool Management for Snake Bodies
-        // We represent the snake path as a series of circles
+        // We represent the snake path as a series of circles matching visual nodes
 
-        const r = 0.5; // Snake Radius
-        const separation = 0.8; // Distance between physics bodies (optimization)
+        const r = CONFIG.SNAKE.CIRCLE_RADIUS;
+        const separation = CONFIG.SNAKE.NODE_SPACING; // Match visual node spacing
 
         let bodyIdx = 0;
 
@@ -351,7 +351,7 @@ export class Grid {
             this.ensureSnakeBody(bodyIdx, lastPos.x, lastPos.z, r);
             bodyIdx++;
 
-            // Walk path
+            // Walk path - create collision body for each visual node
             for (let i = 1; i < snakePath.length; i++) {
                 const p = snakePath[i];
                 if (p.distanceTo(lastPos) >= separation) {
@@ -365,7 +365,6 @@ export class Grid {
         // Hide/Remove unused bodies
         for (let i = bodyIdx; i < this.snakeBodies.length; i++) {
             Matter.Body.setPosition(this.snakeBodies[i], { x: 9999, y: 9999 }); // Move away
-            // Or remove from world? Moving away is cheaper than add/remove churn
         }
     }
 

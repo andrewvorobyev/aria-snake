@@ -6,7 +6,8 @@ export const CONFIG = {
         TARGET_OBSTACLE_DENSITY: 0.05, // 10%
     },
     SNAKE: {
-        INITIAL_LENGTH: 20,
+        INITIAL_NODES: 30,    // Number of visible body segments
+        NODE_SPACING: 0.45,   // Distance between visual nodes
         SPEED: 14,
         CIRCLE_RADIUS: 0.55, // Radius of the snake's body segments
         SAFETY_MARGIN: 0.1, // Extra buffer when checking collisions (raycasting)

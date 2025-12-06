@@ -9,39 +9,52 @@ export class Snake {
     // Movement
     private position: THREE.Vector3;
     private path: THREE.Vector3[] = [];
-    // Logical body parts count for length, but logic resides in path length now mostly
-    private length: number = CONFIG.SNAKE.INITIAL_LENGTH;
+    // Number of visual nodes
+    private nodeCount: number = CONFIG.SNAKE.INITIAL_NODES;
 
     constructor(startPos: THREE.Vector3) {
         this.position = startPos.clone();
 
         // Initialize path in a spiral coil
-        const pointsPerUnit = 5;
-        const totalPoints = this.length * pointsPerUnit;
-        const coilGap = CONFIG.SNAKE.CIRCLE_RADIUS * 2.5; // Gap between coils
+        const nodeSpacing = CONFIG.SNAKE.NODE_SPACING;
+        const pathSpacing = 0.1; // Dense path for smooth movement
+        const requiredPathLength = this.nodeCount * nodeSpacing; // Total arc length needed
 
-        let angle = Math.PI / 2; // Start at +Z (tail trails behind head at +Z)
+        const coilGap = CONFIG.SNAKE.CIRCLE_RADIUS * 2.2; // Gap between coils
+        let angle = 0;
+        let accumulatedLength = 0;
+        let lastPoint = startPos.clone();
 
-        for (let i = 0; i < totalPoints; i++) {
+        // First point is the head
+        this.path.push(startPos.clone());
+
+        // Generate spiral until we have enough arc length
+        while (accumulatedLength < requiredPathLength) {
             // Archimedean spiral: r = b * theta
-            // We shift theta so r starts at 0 when angle is PI/2
-            const thetaDiff = angle - Math.PI / 2;
             const b = coilGap / (2 * Math.PI);
-            const r = b * thetaDiff;
+            const r = b * angle;
 
             const x = Math.cos(angle) * r;
             const z = Math.sin(angle) * r;
 
             const p = this.position.clone().add(new THREE.Vector3(x, 0, z));
-            this.path.push(p);
 
-            // Increment angle to maintain roughly constant point spacing (0.1)
-            // Arc length ds = 0.1
-            // ds ~ r * dTheta => dTheta = ds / r
-            // avoid div by zero for first points
+            // Calculate actual distance from last point
+            const dist = p.distanceTo(lastPoint);
+
+            if (dist >= pathSpacing) {
+                this.path.push(p);
+                accumulatedLength += dist;
+                lastPoint = p;
+            }
+
+            // Increment angle - smaller steps for accuracy
             const effectiveR = Math.max(r, 0.2);
-            const dTheta = 0.2 / effectiveR; // 0.2 spacing for smoother init
+            const dTheta = pathSpacing / (effectiveR * 2);
             angle += dTheta;
+
+            // Safety limit
+            if (this.path.length > 2000) break;
         }
 
         this.visuals = new SnakeVisuals();
@@ -70,8 +83,10 @@ export class Snake {
                 lastHead = newPoint; // Advance reference
                 dist -= spacing; // Remaining distance
 
-                // Limit Path Length
-                const maxPoints = Math.ceil(this.length * 5);
+                // Limit Path Length based on node count and spacing
+                const nodeSpacing = CONFIG.SNAKE.NODE_SPACING;
+                const maxPathLength = this.nodeCount * nodeSpacing;
+                const maxPoints = Math.ceil(maxPathLength / spacing);
                 if (this.path.length > maxPoints) {
                     this.path.length = maxPoints;
                 }

@@ -368,8 +368,9 @@ export class SnakeVisuals {
         if (snakePath.length > 0) {
             visualPoints.push(new THREE.Vector2(snakePath[0].x, snakePath[0].z));
 
+            const nodeSpacing = CONFIG.SNAKE.NODE_SPACING;
             let currentPathDist = 0;
-            let nextBlobDist = 0.45; // Increased density
+            let nextBlobDist = nodeSpacing;
 
             for (let i = 0; i < snakePath.length - 1; i++) {
                 if (visualPoints.length >= MAX_POINTS) break;
@@ -389,7 +390,7 @@ export class SnakeVisuals {
                     const interpZ = p1.z + (p2.z - p1.z) * alpha;
 
                     visualPoints.push(new THREE.Vector2(interpX, interpZ));
-                    nextBlobDist += 0.45;
+                    nextBlobDist += nodeSpacing;
                 }
                 currentPathDist += segLen;
             }
