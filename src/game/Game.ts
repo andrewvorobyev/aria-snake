@@ -68,7 +68,7 @@ export class Game {
         let moveZ = direction.y * speed * dt; // input y mapped to z
 
         const currentPos = this.snake.getHeadPosition();
-        const r = CONFIG.SNAKE.CIRCLE_RADIUS;
+        const r = CONFIG.SNAKE.CIRCLE_RADIUS + CONFIG.SNAKE.SAFETY_MARGIN;
 
         // Try moving X
         if (Math.abs(moveX) > 0.0001) {
