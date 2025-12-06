@@ -30,6 +30,7 @@ export class Input {
         if (this.keys.has('ArrowRight') || this.keys.has('KeyD')) dx = 1;
 
         if (dx !== 0 || dy !== 0) {
+            // Normalize input
             const len = Math.sqrt(dx * dx + dy * dy);
             return { x: dx / len, y: dy / len };
         }

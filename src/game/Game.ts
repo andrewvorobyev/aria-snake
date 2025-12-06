@@ -21,12 +21,17 @@ export class Game {
         this.grid = new Grid(this.renderer.getAspectRatio());
         this.renderer.scene.add(this.grid.mesh);
 
+        // Fit camera to grid immediately
+        const gridPhysicalHeight = CONFIG.GRID.FIXED_SIDE * CONFIG.GRID.CELL_SIZE;
+        this.renderer.fitCameraToGrid(gridPhysicalHeight);
+
         this.snake = new Snake(new THREE.Vector3(0, 0.5, 0));
         this.renderer.scene.add(this.snake.mesh);
 
         // Listen to resize to update grid
         window.addEventListener('game-resize', ((e: CustomEvent) => {
             this.grid.resize(e.detail.aspect);
+            this.renderer.fitCameraToGrid(gridPhysicalHeight);
             this.resetGame();
         }) as EventListener);
     }

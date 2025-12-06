@@ -49,9 +49,9 @@ export class Grid {
 
     public resize(aspectRatio: number) {
         this.depth = CONFIG.GRID.FIXED_SIDE;
-        this.width = Math.floor(this.depth * aspectRatio);
+        this.width = this.depth * aspectRatio; // Allow float width
 
-        // Rebuild Grid Visuals (Lines)
+        // Rebuild Grid Visuals
         while (this.mesh.children.length > 0) {
             this.mesh.remove(this.mesh.children[0]);
         }
@@ -75,16 +75,31 @@ export class Grid {
         const halfW = this.width / 2;
         const halfD = this.depth / 2;
 
-        // Lines along Z (Vertical)
-        for (let x = -halfW; x <= halfW; x += CONFIG.GRID.CELL_SIZE) {
+        // Ensure lines are integer aligned from center (0,0)
+        // Vertical Lines (along Z)
+        // Range: from -floor(halfW) to floor(halfW)
+        // Actually we want cell boundaries. If cells are at 0, 1, 2... 
+        // Boundaries are at -0.5, 0.5, 1.5? 
+        // Or if cells are at 0.5, 1.5. Boundaries at 0, 1, 2.
+        // Let's stick to Node centers at Integers (0,0), then boundaries are at +/- 0.5.
+
+        const xLimit = halfW;
+        for (let x = 0.5; x <= xLimit; x += 1.0) {
+            // Positive side
             points.push(new THREE.Vector3(x, 0, -halfD));
             points.push(new THREE.Vector3(x, 0, halfD));
+            // Negative side
+            points.push(new THREE.Vector3(-x, 0, -halfD));
+            points.push(new THREE.Vector3(-x, 0, halfD));
         }
 
-        // Lines along X (Horizontal)
-        for (let z = -halfD; z <= halfD; z += CONFIG.GRID.CELL_SIZE) {
+        // Horizontal Lines (along X)
+        const zLimit = halfD;
+        for (let z = 0.5; z <= zLimit; z += 1.0) {
             points.push(new THREE.Vector3(-halfW, 0, z));
             points.push(new THREE.Vector3(halfW, 0, z));
+            points.push(new THREE.Vector3(-halfW, 0, -z));
+            points.push(new THREE.Vector3(halfW, 0, -z));
         }
 
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
@@ -210,18 +225,28 @@ export class Grid {
             const halfW = this.width / 2;
             const halfD = this.depth / 2;
 
-            const kx = Math.floor(Math.random() * (this.width / CONFIG.GRID.CELL_SIZE));
-            const kz = Math.floor(Math.random() * (this.depth / CONFIG.GRID.CELL_SIZE));
+            // Integer coordinates range
+            // If width 20.5. Half 10.25. Valid integers: -10 to 10?
+            // Cell 10 boundary: 9.5 to 10.5. 10.5 is > 10.25. So Cell 10 is clipped.
+            // Try to keep fully inside? 
+            // Limit kx to floor(halfW - 0.5).
 
-            const cx = -halfW + 0.5 * CONFIG.GRID.CELL_SIZE + kx * CONFIG.GRID.CELL_SIZE;
-            const cz = -halfD + 0.5 * CONFIG.GRID.CELL_SIZE + kz * CONFIG.GRID.CELL_SIZE;
+            const maxX = Math.floor(halfW - 0.5);
+            const maxZ = Math.floor(halfD - 0.5);
+
+            const kx = Math.floor(Math.random() * (maxX * 2 + 1)) - maxX;
+            const kz = Math.floor(Math.random() * (maxZ * 2 + 1)) - maxZ;
+
+            // kx, kz are integers.
+            const cx = kx;
+            const cz = kz;
 
             // Check distance from snake head (safe zone)
             const d = Math.sqrt((cx - bboxCenter.x) ** 2 + (cz - bboxCenter.z) ** 2);
             if (d < bboxRadius) continue;
 
             // Check occupation
-            const key = `${Math.round(cx)},${Math.round(cz)}`;
+            const key = `${cx},${cz}`;
             if (this.occupiedCells.has(key)) continue;
 
             // Check existing fruits

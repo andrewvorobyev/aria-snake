@@ -3,7 +3,7 @@
 export const CONFIG = {
     GRID: {
         CELL_SIZE: 1.0, // World units
-        FIXED_SIDE: 100, // One dimension is 100 units
+        FIXED_SIDE: 20, // One dimension is 100 units
         TARGET_OBSTACLE_DENSITY: 0.1, // 10%
     },
     SNAKE: {
