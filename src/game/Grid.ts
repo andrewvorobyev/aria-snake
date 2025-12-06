@@ -41,7 +41,7 @@ export class Grid {
         this.obstacleGeometry = new THREE.BoxGeometry(CONFIG.GRID.CELL_SIZE * 0.9, 1, CONFIG.GRID.CELL_SIZE * 0.9);
         this.obstacleMaterial = new THREE.MeshStandardMaterial({ color: CONFIG.COLORS.OBSTACLE });
 
-        this.fruitGeometry = new THREE.SphereGeometry(CONFIG.GRID.CELL_SIZE * 0.4);
+        this.fruitGeometry = new THREE.SphereGeometry(CONFIG.GRID.CELL_SIZE * CONFIG.FRUIT.SIZE_CELLS * 0.4);
         this.fruitMaterial = new THREE.MeshStandardMaterial({ color: CONFIG.COLORS.FRUIT });
 
         this.resize(aspectRatio);
@@ -126,7 +126,7 @@ export class Grid {
         }
 
         // 2. Manage Fruit
-        if (this.fruits.length === 0) {
+        if (this.fruits.length < CONFIG.FRUIT.TARGET_COUNT) {
             this.spawnFruit(snakeHeadPos);
         }
     }
@@ -158,7 +158,10 @@ export class Grid {
     }
 
     private spawnFruit(snakeH: THREE.Vector3) {
-        const pos = this.getRandomEmptyCell(snakeH, 2);
+        // Need 3x3 clearance
+        const size = CONFIG.FRUIT.SIZE_CELLS;
+        const pos = this.getRandomEmptyRegion(snakeH, 2 + size / 2, size);
+
         if (pos) {
             const mesh = new THREE.Mesh(this.fruitGeometry, this.fruitMaterial);
             mesh.position.set(pos.x, 0.5, pos.z);
@@ -206,10 +209,13 @@ export class Grid {
     }
 
     public handleFruitCollection(x: number, z: number, radius: number): boolean {
+        const fruitRadius = (CONFIG.GRID.CELL_SIZE * CONFIG.FRUIT.SIZE_CELLS) * 0.4;
+
         for (let i = this.fruits.length - 1; i >= 0; i--) {
             const f = this.fruits[i];
             const dist = Math.sqrt((x - f.x) ** 2 + (z - f.z) ** 2);
-            if (dist < radius + 0.4) { // radius sum
+
+            if (dist < radius + fruitRadius) {
                 // Remove fruit
                 this.mesh.remove(f.mesh);
                 this.fruits.splice(i, 1);
@@ -219,41 +225,60 @@ export class Grid {
         return false;
     }
 
-    private getRandomEmptyCell(bboxCenter: THREE.Vector3, bboxRadius: number): { x: number, z: number } | null {
+    private getRandomEmptyRegion(bboxCenter: THREE.Vector3, bboxRadius: number, regionSizeCells: number): { x: number, z: number } | null {
         // Try N times to find a spot
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 30; i++) {
             const halfW = this.width / 2;
             const halfD = this.depth / 2;
 
-            // Integer coordinates range
-            // If width 20.5. Half 10.25. Valid integers: -10 to 10?
-            // Cell 10 boundary: 9.5 to 10.5. 10.5 is > 10.25. So Cell 10 is clipped.
-            // Try to keep fully inside? 
-            // Limit kx to floor(halfW - 0.5).
+            const maxX = Math.floor(halfW - 0.5 - (regionSizeCells - 1) / 2);
+            const maxZ = Math.floor(halfD - 0.5 - (regionSizeCells - 1) / 2);
 
-            const maxX = Math.floor(halfW - 0.5);
-            const maxZ = Math.floor(halfD - 0.5);
-
+            // Random center
             const kx = Math.floor(Math.random() * (maxX * 2 + 1)) - maxX;
             const kz = Math.floor(Math.random() * (maxZ * 2 + 1)) - maxZ;
 
-            // kx, kz are integers.
             const cx = kx;
             const cz = kz;
 
-            // Check distance from snake head (safe zone)
+            // Check distance from snake head
             const d = Math.sqrt((cx - bboxCenter.x) ** 2 + (cz - bboxCenter.z) ** 2);
             if (d < bboxRadius) continue;
 
-            // Check occupation
-            const key = `${cx},${cz}`;
-            if (this.occupiedCells.has(key)) continue;
+            // Check occupation for entire region
+            // We check if any cell in the 3x3 area is occupied
+            // Region extends from cx - 1 to cx + 1 (if size 3)
+            let occupied = false;
+            const halfRegion = Math.floor(regionSizeCells / 2);
 
-            // Check existing fruits
-            if (this.fruits.some(f => Math.abs(f.x - cx) < 0.1 && Math.abs(f.z - cz) < 0.1)) continue;
+            for (let rx = -halfRegion; rx <= halfRegion; rx++) {
+                for (let rz = -halfRegion; rz <= halfRegion; rz++) {
+                    const checkX = cx + rx;
+                    const checkZ = cz + rz;
+                    const key = `${checkX},${checkZ}`;
+                    if (this.occupiedCells.has(key)) {
+                        occupied = true;
+                        break;
+                    }
+                }
+                if (occupied) break;
+            }
+            if (occupied) continue;
+
+            // Check existing fruits (center to center distance)
+            // Overlap if distance < (MySize + TheirSize) / 2
+            const fruitSize = CONFIG.FRUIT.SIZE_CELLS;
+            const minDistance = (regionSizeCells + fruitSize) / 2;
+
+            if (this.fruits.some(f => Math.abs(f.x - cx) < minDistance && Math.abs(f.z - cz) < minDistance)) continue;
 
             return { x: cx, z: cz };
         }
         return null;
+    }
+
+    // Helper for single cell (kept for obstacles)
+    private getRandomEmptyCell(bboxCenter: THREE.Vector3, bboxRadius: number): { x: number, z: number } | null {
+        return this.getRandomEmptyRegion(bboxCenter, bboxRadius, 1);
     }
 }

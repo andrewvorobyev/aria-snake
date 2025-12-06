@@ -22,6 +22,10 @@ export const CONFIG = {
         OBSTACLE: 0xff4444, // Red blocks
         FRUIT: 0xffaa00, // Orange fruit
     },
+    FRUIT: {
+        SIZE_CELLS: 3,
+        TARGET_COUNT: 5,
+    },
     CAMERA: {
         FOV: 60,
         HEIGHT_OFFSET: 100, // Distance from grid to fit 100 units (approx 50 / tan(30) = 86.6)
