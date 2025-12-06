@@ -2,7 +2,18 @@ export class Input {
     private keys: Set<string> = new Set();
 
     constructor() {
-        window.addEventListener('keydown', (e) => this.keys.add(e.code));
+        window.addEventListener('keydown', (e) => {
+            this.keys.add(e.code);
+            if (e.code === 'KeyF') {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(err => {
+                        console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+                    });
+                } else {
+                    document.exitFullscreen();
+                }
+            }
+        });
         window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     }
 

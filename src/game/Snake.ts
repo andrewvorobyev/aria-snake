@@ -55,17 +55,23 @@ export class Snake {
         if (displacement.lengthSq() > 0.000001) {
             this.position.add(displacement);
 
-            const lastHead = this.path[0];
-            const dist = this.position.distanceTo(lastHead);
+            // Interpolate points if large jump (lag or large dt)
+            let lastHead = this.path[0];
+            let dist = this.position.distanceTo(lastHead);
 
-            // Higher fidelity path recording
-            if (dist > 0.1) {
-                this.path.unshift(this.position.clone());
+            const spacing = 0.1;
+
+            while (dist > spacing) {
+                // Direction from last recorded point to current real head
+                const dir = new THREE.Vector3().subVectors(this.position, lastHead).normalize();
+                const newPoint = lastHead.clone().add(dir.multiplyScalar(spacing));
+
+                this.path.unshift(newPoint);
+                lastHead = newPoint; // Advance reference
+                dist -= spacing; // Remaining distance
 
                 // Limit Path Length
-                // Logical length is approximate based on points density
-                // Let's keep enough points. 
-                const maxPoints = Math.ceil(this.length * 5); // 5 points per unit length roughly?
+                const maxPoints = Math.ceil(this.length * 5);
                 if (this.path.length > maxPoints) {
                     this.path.length = maxPoints;
                 }

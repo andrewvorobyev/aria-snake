@@ -36,7 +36,7 @@ export class Game {
         window.addEventListener('game-resize', ((e: CustomEvent) => {
             this.grid.resize(e.detail.aspect);
             this.renderer.fitCameraToGrid(gridPhysicalHeight);
-            this.resetGame();
+            // Don't reset snake on resize, just let the world expand/contract
         }) as EventListener);
     }
 
