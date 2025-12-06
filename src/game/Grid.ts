@@ -45,6 +45,11 @@ float snoise(vec2 v){
   return 130.0 * dot(m, g);
 }
 
+// Pseudo-random (Hash)
+float rand(vec2 n) { 
+    return fract(sin(dot(n, vec2(12.9898, 4.1414))) * 43758.5453);
+}
+
 void main() {
     vec2 uv = vUv;
     float time = uTime * 0.1;
@@ -57,9 +62,9 @@ void main() {
     // --- 2. Fluid Currents (Volumetric) ---
     float angle = -0.5;
     mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
-    vec2 rotUV = rot * uv * 0.6; // Large scale
+    vec2 rotUV = rot * uv * 0.6; 
     
-    // Domain Warping for fluidity
+    // Domain Warping
     vec2 warp = vec2(
         snoise(rotUV * 1.5 + vec2(time * 0.2, time * 0.1)),
         snoise(rotUV * 1.5 + vec2(time * 0.15, -time * 0.2) + vec2(3.4, 1.2))
@@ -67,8 +72,6 @@ void main() {
     
     // Displaced noise
     float fluidNoise = snoise(rotUV + warp * 0.4 - vec2(time * 0.05, time * 0.1));
-    
-    // Soft & Flowing
     float currents = smoothstep(-0.4, 1.0, fluidNoise);
     
     // Teal/Aqua Caustics
@@ -79,11 +82,7 @@ void main() {
     float dustTime = uTime * 0.03; 
     vec2 dustUV = uv * 6.0; 
     
-    // Swirly dust movement
-    vec2 dustWarp = vec2(
-        sin(dustUV.y * 2.0 + time), 
-        cos(dustUV.x * 2.0 + time * 0.8)
-    ) * 0.1;
+    vec2 dustWarp = vec2(sin(dustUV.y * 2.0 + time), cos(dustUV.x * 2.0 + time * 0.8)) * 0.1;
     
     float n1 = snoise(dustUV + dustWarp + vec2(0.0, -dustTime)); 
     float speck1 = smoothstep(0.4, 0.9, n1); 
@@ -94,7 +93,17 @@ void main() {
     vec3 dustCol = vec3(0.4, 0.7, 0.8);
     col += (speck1 * 0.15 + speck2 * 0.1) * dustCol;
 
-    // --- 4. Vignette ---
+    // --- 4. Noise / Grain (Texture) ---
+    
+    // High Frequency Static/Solids suspended in water
+    float grain = rand(uv * 2.0 + vec2(uTime * 1.5)); // Animated Static
+    col += (grain - 0.5) * 0.08; // Subtle grit
+    
+    // Extra Perlin details
+    float detail = snoise(uv * 20.0 - uTime * 0.1);
+    col += detail * 0.02; // Very faint turbulence
+
+    // --- 5. Vignette ---
     float dist = distance(uv, vec2(0.5));
     col *= smoothstep(1.3, 0.2, dist * 0.8);
 
