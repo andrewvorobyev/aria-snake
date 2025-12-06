@@ -5,6 +5,7 @@ varying vec2 vUv;
 uniform float uTime;
 uniform vec3 uColor;
 uniform int uMask; // Bitmask: 1=N, 2=E, 4=S, 8=W
+uniform float uAppear; // Animation state: 0.0 (Hide) -> 1.0 (Show)
 
 // SDF Primitives
 float sdCircle(vec2 p, float r) {
@@ -31,33 +32,51 @@ float snoise(vec2 v) {
     return fract(sin(dot(v, vec2(12.9898, 78.233))) * 43758.5453);
 }
 
+// Voronoi for structure
+float voronoi(vec2 uv) {
+    vec2 p = floor(uv);
+    vec2 f = fract(uv);
+    float res = 8.0;
+    for(int j=-1; j<=1; j++)
+    for(int i=-1; i<=1; i++) {
+        vec2 b = vec2(i, j);
+        vec2 r = vec2(b) - f + rand(p + b);
+        float d = dot(r, r);
+        res = min(res, d);
+    }
+    return sqrt(res);
+}
+
 void main() {
     vec2 p = vUv * 2.0 - 1.0; // -1 to 1
     
+    // Animation Easing (Smooth)
+    float s = smoothstep(0.0, 1.0, uAppear);
+    if (s < 0.01) discard;
+
     // Morphing Noise
     float morph = snoise(p * 3.0 + uTime * 1.0) * 0.04;
     
+    // Scale shape by appear state
     // Base shape: Rectangular Box (Oversized)
-    float boxSize = 0.95;
-    float d = sdBox(p, vec2(boxSize, boxSize)) - 0.05; 
+    float baseSize = 0.95 * s;
+    float d = sdBox(p, vec2(baseSize)) - 0.05 * s; 
     
     // Connections
-    float blend = 0.01; // Hard union for straight edges
-    float armWidth = 0.95; 
+    float blend = 0.01; // Hard union
+    float armWidth = 0.95 * s; 
     
     float linkPulse = 0.0;
     
     // Pulse Settings
-    float beamWidth = 0.12; 
+    float beamWidth = 0.12 * s; 
     float flowSpeed = 10.0;
     
     // North (1) -> y > 0
     if ((uMask & 1) != 0) {
-        // Extend slightly past 1.0 to ensure overlap
         float arm = sdBox(p - vec2(0.0, 1.05), vec2(armWidth, 1.05));
         d = smin(d, arm, blend);
         
-        // Pulse: Vertical line x=0
         float beam = smoothstep(beamWidth, 0.02, abs(p.x)) * step(0.0, p.y);
         float flow = 0.5 + 0.5 * sin(p.y * 10.0 - uTime * flowSpeed);
         linkPulse += beam * flow;
@@ -68,7 +87,6 @@ void main() {
         float arm = sdBox(p - vec2(1.05, 0.0), vec2(1.05, armWidth));
         d = smin(d, arm, blend);
         
-        // Pulse: Horizontal line y=0
         float beam = smoothstep(beamWidth, 0.02, abs(p.y)) * step(0.0, p.x);
         float flow = 0.5 + 0.5 * sin(p.x * 10.0 - uTime * flowSpeed);
         linkPulse += beam * flow;
@@ -94,7 +112,7 @@ void main() {
         linkPulse += beam * flow;
     }
     
-    // Apply Morph (less intense)
+    // Apply Morph
     d -= morph * 0.5;
     
     // --- Rendering ---
@@ -106,13 +124,22 @@ void main() {
     // Color / Shading
     vec3 col = uColor;
     
+    // Structure Noise (Voronoi)
+    // Add distinct "tech/organic" plating texture
+    float plating = voronoi(vUv * 4.0 + p * 0.5); // Large scale
+    float platePattern = smoothstep(0.0, 0.5, plating);
+    col = mix(col * 0.8, col * 1.2, platePattern);
+    
+    // Add finer grain
+    float grain = rand(vUv * 20.0);
+    col += (grain - 0.5) * 0.05;
+
     // Bevel
     col *= 0.6 + 0.4 * smoothstep(-0.2, -0.8, d); 
     
-    // Add Link Pulse (Bright Cyan/Teal for contrast)
-    // Make it distinct
+    // Add Link Pulse
     vec3 pulseCol = vec3(0.2, 0.9, 1.0);
-    col = mix(col, pulseCol, linkPulse * 0.8); // Override color where pulse is
+    col = mix(col, pulseCol, linkPulse * 0.8 * s); // Fade with size
     
     // Dark Outline
     float outline = smoothstep(-0.05, 0.0, d);
@@ -135,20 +162,14 @@ export class ObstacleVisuals {
         const geometry = new THREE.PlaneGeometry(1, 1);
         geometry.rotateX(-Math.PI / 2); // Flat on XZ
 
-        // Lift slightly? No, keep flush? 
-        // Snake is at y=0.05. Fruits at 0.05.
-        // Obstacles should block snake.
-        // Let's put them at y=0.01 to cover grid lines but be below fruits?
-        // Or y=0.2 to be "walls".
-        // Let's try y=0.02.
-
         const material = new THREE.ShaderMaterial({
             vertexShader: OBSTACLE_VERTEX_SHADER,
             fragmentShader: OBSTACLE_FRAGMENT_SHADER,
             uniforms: {
                 uTime: { value: 0 },
                 uColor: { value: new THREE.Vector3(0.18, 0.1, 0.25) }, // Stylish Deep Indigo/Plum
-                uMask: { value: 0 }
+                uMask: { value: 0 },
+                uAppear: { value: 0.0 } // Start Invisible
             },
             transparent: true,
             side: THREE.DoubleSide

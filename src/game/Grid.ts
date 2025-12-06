@@ -124,6 +124,8 @@ interface Obstacle {
     mesh: THREE.Mesh;
     ttl: number; // Time To Live
     mask?: number;
+    appearing: boolean;
+    vanishing: boolean;
 }
 
 interface Fruit {
@@ -195,11 +197,41 @@ export class Grid {
         const totalCells = (this.width / CONFIG.GRID.CELL_SIZE) * (this.depth / CONFIG.GRID.CELL_SIZE);
         const targetCount = Math.floor(totalCells * CONFIG.GRID.TARGET_OBSTACLE_DENSITY);
 
-        // Decay existing
+        // Decay & Animate existing
+        const animSpeed = 4.0;
         for (let i = this.obstacles.length - 1; i >= 0; i--) {
-            this.obstacles[i].ttl -= dt;
-            if (this.obstacles[i].ttl <= 0) {
-                this.removeObstacle(i);
+            const obs = this.obstacles[i];
+
+            // Lifecycle
+            if (!obs.vanishing) {
+                obs.ttl -= dt;
+                if (obs.ttl <= 0) {
+                    obs.vanishing = true;
+                }
+            }
+
+            // Animation State
+            let uAppear = 0;
+            if (obs.mesh.material instanceof THREE.ShaderMaterial) {
+                uAppear = obs.mesh.material.uniforms.uAppear.value;
+                obs.mesh.material.uniforms.uTime.value += dt;
+            }
+
+            if (obs.appearing) {
+                uAppear += dt * animSpeed;
+                if (uAppear >= 1.0) { uAppear = 1.0; obs.appearing = false; }
+            } else if (obs.vanishing) {
+                uAppear -= dt * animSpeed;
+                if (uAppear <= 0.0) {
+                    this.removeObstacle(i);
+                    continue;
+                }
+            } else {
+                uAppear = 1.0;
+            }
+
+            if (obs.mesh.material instanceof THREE.ShaderMaterial) {
+                obs.mesh.material.uniforms.uAppear.value = uAppear;
             }
         }
 
@@ -223,12 +255,7 @@ export class Grid {
             }
         });
 
-        // Update Obstacle Animations
-        this.obstacles.forEach(o => {
-            if (o.mesh.material instanceof THREE.ShaderMaterial) {
-                o.mesh.material.uniforms.uTime.value += dt;
-            }
-        });
+
     }
 
     private spawnObstacle(snakePath: THREE.Vector3[]) {
@@ -313,7 +340,9 @@ export class Grid {
                         z: pt.z,
                         mesh: mesh,
                         ttl: ttl,
-                        mask: 0
+                        mask: 0,
+                        appearing: true,
+                        vanishing: false
                     });
                     this.occupiedCells.add(`${Math.round(pt.x)},${Math.round(pt.z)}`);
                 }
