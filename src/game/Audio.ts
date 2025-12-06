@@ -276,6 +276,127 @@ export class Audio {
         osc2.stop(now + 0.15);
     }
 
+    /**
+     * Play button effect sound
+     * Each button has a unique musical sound
+     */
+    public async playButtonSound(button: 'X' | 'Y' | 'A' | 'B') {
+        await this.init();
+        if (!this.audioContext || !this.sfxGain) return;
+
+        const now = this.audioContext.currentTime;
+        const pitch = CONFIG.BUTTON_EFFECTS[button].PITCH;
+
+        switch (button) {
+            case 'X': // Blue - shimmer arpeggio up
+                this.playArpeggio(now, [pitch, pitch * 1.25, pitch * 1.5, pitch * 2], 0.05);
+                break;
+            case 'Y': // Yellow - bright chord
+                this.playChord(now, [pitch, pitch * 1.25, pitch * 1.5], 0.3);
+                break;
+            case 'A': // Green - bouncy boing
+                this.playBoing(now, pitch);
+                break;
+            case 'B': // Red - deep thump
+                this.playThump(now, pitch);
+                break;
+        }
+    }
+
+    private playArpeggio(startTime: number, freqs: number[], interval: number) {
+        if (!this.audioContext || !this.sfxGain) return;
+
+        freqs.forEach((freq, i) => {
+            const osc = this.audioContext!.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+
+            const env = this.audioContext!.createGain();
+            const t = startTime + i * interval;
+            env.gain.setValueAtTime(0, t);
+            env.gain.linearRampToValueAtTime(0.25, t + 0.02);
+            env.gain.exponentialRampToValueAtTime(0.01, t + 0.2);
+
+            osc.connect(env);
+            env.connect(this.sfxGain!);
+            osc.start(t);
+            osc.stop(t + 0.25);
+        });
+    }
+
+    private playChord(startTime: number, freqs: number[], duration: number) {
+        if (!this.audioContext || !this.sfxGain) return;
+
+        freqs.forEach(freq => {
+            const osc = this.audioContext!.createOscillator();
+            osc.type = 'triangle';
+            osc.frequency.value = freq;
+
+            const env = this.audioContext!.createGain();
+            env.gain.setValueAtTime(0, startTime);
+            env.gain.linearRampToValueAtTime(0.2, startTime + 0.02);
+            env.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+
+            osc.connect(env);
+            env.connect(this.sfxGain!);
+            osc.start(startTime);
+            osc.stop(startTime + duration);
+        });
+    }
+
+    private playBoing(startTime: number, freq: number) {
+        if (!this.audioContext || !this.sfxGain) return;
+
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq * 0.5, startTime);
+        osc.frequency.exponentialRampToValueAtTime(freq * 2, startTime + 0.1);
+        osc.frequency.exponentialRampToValueAtTime(freq, startTime + 0.3);
+
+        const env = this.audioContext.createGain();
+        env.gain.setValueAtTime(0, startTime);
+        env.gain.linearRampToValueAtTime(0.35, startTime + 0.02);
+        env.gain.exponentialRampToValueAtTime(0.01, startTime + 0.4);
+
+        osc.connect(env);
+        env.connect(this.sfxGain);
+        osc.start(startTime);
+        osc.stop(startTime + 0.5);
+    }
+
+    private playThump(startTime: number, freq: number) {
+        if (!this.audioContext || !this.sfxGain) return;
+
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, startTime);
+        osc.frequency.exponentialRampToValueAtTime(freq * 0.3, startTime + 0.15);
+
+        const env = this.audioContext.createGain();
+        env.gain.setValueAtTime(0, startTime);
+        env.gain.linearRampToValueAtTime(0.5, startTime + 0.01);
+        env.gain.exponentialRampToValueAtTime(0.01, startTime + 0.3);
+
+        // Add sub-bass
+        const sub = this.audioContext.createOscillator();
+        sub.type = 'sine';
+        sub.frequency.value = freq * 0.5;
+
+        const subEnv = this.audioContext.createGain();
+        subEnv.gain.setValueAtTime(0.3, startTime);
+        subEnv.gain.exponentialRampToValueAtTime(0.01, startTime + 0.2);
+
+        osc.connect(env);
+        sub.connect(subEnv);
+        env.connect(this.sfxGain);
+        subEnv.connect(this.sfxGain);
+
+        osc.start(startTime);
+        sub.start(startTime);
+        osc.stop(startTime + 0.35);
+        sub.stop(startTime + 0.25);
+    }
+
     private playNoiseBurst(startTime: number, duration: number, filterFreq: number) {
         if (!this.audioContext || !this.sfxGain) return;
 

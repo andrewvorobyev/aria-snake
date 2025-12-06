@@ -237,6 +237,69 @@ export class ParticleSystem {
     }
 
     /**
+     * Spawn button-specific particle effect
+     */
+    public spawnButtonEffect(x: number, z: number, button: 'X' | 'Y' | 'A' | 'B') {
+        const config = CONFIG.BUTTON_EFFECTS[button];
+        let spawned = 0;
+
+        for (let i = 0; i < this.maxParticles && spawned < config.COUNT; i++) {
+            const p = this.particles[i];
+            if (p.active) continue;
+
+            p.active = true;
+            p.position.set(x, 0.5, z);
+
+            for (let t = 0; t < TRAIL_LENGTH; t++) {
+                p.trail[t].x = x;
+                p.trail[t].y = 0.5;
+                p.trail[t].z = z;
+            }
+
+            // Different patterns per button
+            let angle: number, speed: number, upSpeed: number;
+
+            switch (button) {
+                case 'X': // Spiral burst
+                    angle = (spawned / config.COUNT) * Math.PI * 4 + spawned * 0.3;
+                    speed = config.SPEED * (0.5 + spawned / config.COUNT);
+                    upSpeed = 8 + Math.random() * 8;
+                    break;
+                case 'Y': // Ring burst (horizontal)
+                    angle = (spawned / config.COUNT) * Math.PI * 2;
+                    speed = config.SPEED + Math.random() * 5;
+                    upSpeed = 2 + Math.random() * 3;
+                    break;
+                case 'A': // Fountain (upward)
+                    angle = (spawned / config.COUNT) * Math.PI * 2 + Math.random() * 0.5;
+                    speed = config.SPEED * 0.5 + Math.random() * 5;
+                    upSpeed = 15 + Math.random() * 10;
+                    break;
+                case 'B': // Explosion (all directions)
+                default:
+                    angle = Math.random() * Math.PI * 2;
+                    speed = config.SPEED + Math.random() * 10;
+                    upSpeed = -5 + Math.random() * 20;
+                    break;
+            }
+
+            p.velocity.set(
+                Math.cos(angle) * speed,
+                upSpeed,
+                Math.sin(angle) * speed
+            );
+
+            p.initialSpeed = p.velocity.length();
+            p.life = 0;
+            p.maxLife = 0.4 + Math.random() * 0.4;
+            p.hue = config.HUE + (Math.random() - 0.5) * 0.1; // Slight hue variation
+            p.size = config.SIZE + Math.random() * 10;
+
+            spawned++;
+        }
+    }
+
+    /**
      * Update particle physics with trails
      */
     public update(dt: number) {

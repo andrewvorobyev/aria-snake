@@ -76,5 +76,15 @@ export const CONFIG = {
         SPEED: { MIN: 12, MAX: 25 },
         UP_SPEED: { MIN: 10, MAX: 20 },
         GRAVITY: -35
+    },
+    BUTTON_EFFECTS: {
+        // X button (keyboard W) - Blue spiral burst
+        X: { HUE: 0.6, COUNT: 40, SIZE: 20, SPEED: 15, PITCH: 400 },
+        // Y button (keyboard A) - Yellow ring burst  
+        Y: { HUE: 0.15, COUNT: 50, SIZE: 25, SPEED: 20, PITCH: 500 },
+        // A button (keyboard S) - Green fountain
+        A: { HUE: 0.33, COUNT: 35, SIZE: 18, SPEED: 18, PITCH: 300 },
+        // B button (keyboard D) - Red explosion
+        B: { HUE: 0.0, COUNT: 60, SIZE: 30, SPEED: 25, PITCH: 250 }
     }
 };

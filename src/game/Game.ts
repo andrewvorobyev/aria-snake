@@ -151,11 +151,21 @@ export class Game {
             this.particles.spawnBurst(newHeadPos.x, newHeadPos.z);
         }
 
+        // Button effects (XYAB / 1234)
+        const buttonEffect = this.input.getButtonEffect();
+        if (buttonEffect) {
+            this.audio.playButtonSound(buttonEffect);
+            this.particles.spawnButtonEffect(newHeadPos.x, newHeadPos.z, buttonEffect);
+        }
+
         // Start background music on first input (user gesture required for AudioContext)
-        if (!this.musicStarted && (direction.x !== 0 || direction.y !== 0)) {
+        if (!this.musicStarted && (direction.x !== 0 || direction.y !== 0 || buttonEffect)) {
             this.audio.startBackgroundMusic();
             this.musicStarted = true;
         }
+
+        // Clear per-frame input state
+        this.input.endFrame();
     }
 
     private resetGame() {

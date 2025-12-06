@@ -1,9 +1,17 @@
+export type ButtonEffect = 'X' | 'Y' | 'A' | 'B' | null;
+
 export class Input {
     private keys: Set<string> = new Set();
+    private pressedThisFrame: Set<string> = new Set();
+    private gamepadButtonsPressed: Set<number> = new Set();
 
     constructor() {
         window.addEventListener('keydown', (e) => {
+            if (!this.keys.has(e.code)) {
+                this.pressedThisFrame.add(e.code);
+            }
             this.keys.add(e.code);
+
             if (e.code === 'KeyF') {
                 if (!document.fullscreenElement) {
                     document.documentElement.requestFullscreen().catch(err => {
@@ -21,11 +29,25 @@ export class Input {
         let dx = 0;
         let dy = 0;
 
-        // Gamepad Priority
+        // Gamepad - check both left and right sticks
         const gamepad = navigator.getGamepads()[0];
         if (gamepad) {
-            const axisX = gamepad.axes[0];
-            const axisY = gamepad.axes[1];
+            // Left stick (axes 0, 1)
+            let axisX = gamepad.axes[0];
+            let axisY = gamepad.axes[1];
+
+            // Right stick (axes 2, 3) - use if left stick isn't active
+            const rightX = gamepad.axes[2];
+            const rightY = gamepad.axes[3];
+
+            // Use whichever stick has more input
+            const leftMag = Math.sqrt(axisX * axisX + axisY * axisY);
+            const rightMag = Math.sqrt(rightX * rightX + rightY * rightY);
+
+            if (rightMag > leftMag && rightMag > 0.1) {
+                axisX = rightX;
+                axisY = rightY;
+            }
 
             // Deadzone
             if (Math.abs(axisX) > 0.1 || Math.abs(axisY) > 0.1) {
@@ -41,11 +63,55 @@ export class Input {
         if (this.keys.has('ArrowRight') || this.keys.has('KeyD')) dx = 1;
 
         if (dx !== 0 || dy !== 0) {
-            // Normalize input
             const len = Math.sqrt(dx * dx + dy * dy);
             return { x: dx / len, y: dy / len };
         }
 
         return { x: 0, y: 0 };
+    }
+
+    /**
+     * Check for button effect triggers (XYAB on controller, 1234 on keyboard)
+     * Returns null if no button was pressed this frame
+     */
+    public getButtonEffect(): ButtonEffect {
+        // Check keyboard (1, 2, 3, 4 keys)
+        if (this.pressedThisFrame.has('Digit1')) return 'X';
+        if (this.pressedThisFrame.has('Digit2')) return 'Y';
+        if (this.pressedThisFrame.has('Digit3')) return 'A';
+        if (this.pressedThisFrame.has('Digit4')) return 'B';
+
+        // Check gamepad buttons
+        const gamepad = navigator.getGamepads()[0];
+        if (gamepad) {
+            // Xbox controller: X=2, Y=3, A=0, B=1
+            const buttonMap: [number, ButtonEffect][] = [
+                [2, 'X'], // X button
+                [3, 'Y'], // Y button
+                [0, 'A'], // A button
+                [1, 'B'], // B button
+            ];
+
+            for (const [btnIndex, effect] of buttonMap) {
+                const pressed = gamepad.buttons[btnIndex]?.pressed;
+                const wasPressed = this.gamepadButtonsPressed.has(btnIndex);
+
+                if (pressed && !wasPressed) {
+                    this.gamepadButtonsPressed.add(btnIndex);
+                    return effect;
+                } else if (!pressed && wasPressed) {
+                    this.gamepadButtonsPressed.delete(btnIndex);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Call at end of frame to clear pressed-this-frame state
+     */
+    public endFrame() {
+        this.pressedThisFrame.clear();
     }
 }
