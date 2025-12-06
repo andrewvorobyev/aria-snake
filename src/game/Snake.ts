@@ -88,4 +88,8 @@ export class Snake {
     public triggerBlink() {
         this.visuals.triggerBlink();
     }
+
+    public triggerEat() {
+        this.visuals.triggerEat();
+    }
 }

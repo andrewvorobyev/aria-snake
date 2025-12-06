@@ -144,12 +144,14 @@ export class FruitVisuals {
 
         let color: THREE.Color;
 
+        const virusColors = CONFIG.FRUIT.VIRUS.COLORS;
+
         switch (type) {
             case FruitType.PARTICLE_A:
-                color = new THREE.Color(0xff2244); // Crimson Red
+                color = new THREE.Color(virusColors[0]);
                 break;
             case FruitType.PARTICLE_B:
-                color = new THREE.Color(0xff4422); // Tomato Red
+                color = new THREE.Color(virusColors[1]);
                 break;
             default:
                 color = new THREE.Color(0xff3333);

@@ -15,6 +15,11 @@ export const CONFIG = {
         BODY_COLOR: 0x44aa44,
         EYE_COLOR: 0xffffff,
         PUPIL_COLOR: 0x000000,
+        EAT_PULSE: {
+            SPEED: 1.5, // How fast the pulse travels down body
+            DURATION: 1.5, // Total time active
+            COLOR: 0xff0000
+        }
     },
     COLORS: {
         BACKGROUND: 0x111111,
@@ -42,7 +47,8 @@ export const CONFIG = {
         VIRUS: {
             ARMS: { MIN: 3, MAX: 7 },
             ARM_LENGTH: { MIN: 0.2, MAX: 0.6 },
-            PULSE_SPEED: 2.0
+            PULSE_SPEED: 2.0,
+            COLORS: [0xff2244, 0xff4422] // Crimson, Tomato
         }
     },
     CAMERA: {

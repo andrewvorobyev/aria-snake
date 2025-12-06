@@ -112,6 +112,7 @@ export class Game {
         const newHeadPos = this.snake.getHeadPosition();
         if (this.grid.handleFruitCollection(newHeadPos.x, newHeadPos.z, r)) {
             console.log("Nom!");
+            this.snake.triggerEat();
         }
     }
 
