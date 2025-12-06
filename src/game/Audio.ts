@@ -49,8 +49,8 @@ export class Audio {
     }
 
     /**
-     * Start ambient background music
-     * Creates a layered drone with subtle modulation
+     * Start melodic background music
+     * Creates a gentle arpeggio pattern with evolving harmonies
      */
     public async startBackgroundMusic() {
         await this.init();
@@ -58,82 +58,124 @@ export class Audio {
 
         this.isPlaying = true;
 
-        // Base frequencies for ambient drone (C minor chord spread across octaves)
-        const frequencies = [65.41, 130.81, 155.56, 196.00, 261.63]; // C2, C3, Eb3, G3, C4
+        // Start the melodic sequence
+        this.playMelodicSequence();
 
-        frequencies.forEach((freq, i) => {
-            // Main oscillator
-            const osc = this.audioContext!.createOscillator();
-            osc.type = i === 0 ? 'sine' : 'triangle';
+        // Add a soft pad for harmonic bed
+        this.addPadLayer();
+    }
+
+    private playMelodicSequence() {
+        if (!this.audioContext || !this.bgGain) return;
+
+        // Musical scale: C major pentatonic for pleasant sound
+        // C4, D4, E4, G4, A4, C5, D5, E5
+        const notes = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25];
+
+        // Arpeggio patterns (indices into notes array)
+        const patterns = [
+            [0, 2, 4, 5],  // C, E, A, C5
+            [1, 3, 5, 7],  // D, G, C5, E5
+            [0, 3, 4, 6],  // C, G, A, D5
+            [2, 4, 5, 7],  // E, A, C5, E5
+        ];
+
+        let patternIndex = 0;
+        let noteIndex = 0;
+        const noteInterval = 0.4; // seconds between notes
+        const noteDuration = 0.6; // note length
+
+        const playNote = () => {
+            if (!this.audioContext || !this.bgGain || !this.isPlaying) return;
+
+            const pattern = patterns[patternIndex];
+            const freq = notes[pattern[noteIndex]];
+
+            // Create oscillator for the note
+            const osc = this.audioContext.createOscillator();
+            osc.type = 'sine';
             osc.frequency.value = freq;
 
-            // Subtle detuning for richness
-            osc.detune.value = (Math.random() - 0.5) * 10;
+            // Add slight detune for warmth
+            osc.detune.value = (Math.random() - 0.5) * 8;
 
-            // Individual gain for layering
+            // Envelope for smooth attack/release
+            const envelope = this.audioContext.createGain();
+            const now = this.audioContext.currentTime;
+            envelope.gain.setValueAtTime(0, now);
+            envelope.gain.linearRampToValueAtTime(0.12, now + 0.05);
+            envelope.gain.exponentialRampToValueAtTime(0.06, now + noteDuration * 0.5);
+            envelope.gain.exponentialRampToValueAtTime(0.001, now + noteDuration);
+
+            // Soft low-pass filter
+            const filter = this.audioContext.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = 2000;
+            filter.Q.value = 0.5;
+
+            osc.connect(filter);
+            filter.connect(envelope);
+            envelope.connect(this.bgGain);
+
+            osc.start(now);
+            osc.stop(now + noteDuration);
+
+            // Advance to next note
+            noteIndex++;
+            if (noteIndex >= pattern.length) {
+                noteIndex = 0;
+                patternIndex = (patternIndex + 1) % patterns.length;
+            }
+
+            // Schedule next note
+            if (this.isPlaying) {
+                setTimeout(playNote, noteInterval * 1000);
+            }
+        };
+
+        // Start the sequence
+        playNote();
+    }
+
+    private addPadLayer() {
+        if (!this.audioContext || !this.bgGain) return;
+
+        // Soft pad chord: C major with added 9th for dreamy feel
+        const padFreqs = [130.81, 164.81, 196.00, 293.66]; // C3, E3, G3, D4
+
+        padFreqs.forEach((freq, i) => {
+            const osc = this.audioContext!.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            osc.detune.value = (Math.random() - 0.5) * 6;
+
             const gain = this.audioContext!.createGain();
-            gain.gain.value = 0.1 / (i + 1); // Higher notes are quieter
+            gain.gain.value = 0.03; // Very soft
 
-            // Low-pass filter for warmth
+            // Slow volume modulation for movement
+            const lfo = this.audioContext!.createOscillator();
+            lfo.type = 'sine';
+            lfo.frequency.value = 0.15 + i * 0.05;
+
+            const lfoGain = this.audioContext!.createGain();
+            lfoGain.gain.value = 0.015;
+
+            lfo.connect(lfoGain);
+            lfoGain.connect(gain.gain);
+
+            // Low-pass for softness
             const filter = this.audioContext!.createBiquadFilter();
             filter.type = 'lowpass';
-            filter.frequency.value = 800 + i * 200;
-            filter.Q.value = 0.5;
+            filter.frequency.value = 600;
 
             osc.connect(filter);
             filter.connect(gain);
             gain.connect(this.bgGain!);
 
             osc.start();
-            this.bgOscillators.push(osc);
-
-            // Slow LFO modulation for movement
-            const lfo = this.audioContext!.createOscillator();
-            lfo.type = 'sine';
-            lfo.frequency.value = 0.1 + Math.random() * 0.1;
-
-            const lfoGain = this.audioContext!.createGain();
-            lfoGain.gain.value = 5; // Subtle pitch wobble
-
-            lfo.connect(lfoGain);
-            lfoGain.connect(osc.frequency);
             lfo.start();
+            this.bgOscillators.push(osc);
         });
-
-        // Add subtle noise layer for texture
-        this.addNoiseLayer();
-    }
-
-    private addNoiseLayer() {
-        if (!this.audioContext || !this.bgGain) return;
-
-        // Create noise buffer
-        const bufferSize = this.audioContext.sampleRate * 2;
-        const noiseBuffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
-        const output = noiseBuffer.getChannelData(0);
-
-        for (let i = 0; i < bufferSize; i++) {
-            output[i] = Math.random() * 2 - 1;
-        }
-
-        const noise = this.audioContext.createBufferSource();
-        noise.buffer = noiseBuffer;
-        noise.loop = true;
-
-        // Heavy filtering for subtle ambience
-        const filter = this.audioContext.createBiquadFilter();
-        filter.type = 'bandpass';
-        filter.frequency.value = 400;
-        filter.Q.value = 0.3;
-
-        const noiseGain = this.audioContext.createGain();
-        noiseGain.gain.value = 0.02; // Very quiet
-
-        noise.connect(filter);
-        filter.connect(noiseGain);
-        noiseGain.connect(this.bgGain);
-
-        noise.start();
     }
 
     /**
