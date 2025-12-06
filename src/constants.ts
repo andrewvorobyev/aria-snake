@@ -22,6 +22,13 @@ export const CONFIG = {
         OBSTACLE: 0xff4444, // Red blocks
         FRUIT: 0xffaa00, // Orange fruit
     },
+    ORGANISMS: {
+        COUNT: 10,
+        BLOB_COUNT: { MIN: 2, MAX: 7 },
+        RADIUS: { MIN: 0.4, MAX: 0.9 },
+        SPACING: { MIN: 0.5, MAX: 1.2 },
+        SPEED: { MIN: 0.03, MAX: 0.05 },
+    },
     FRUIT: {
         SIZE_CELLS: 3,
         TARGET_COUNT: 5,

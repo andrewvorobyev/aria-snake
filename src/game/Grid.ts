@@ -275,7 +275,7 @@ export class Grid {
             const points: THREE.Vector3[] = [];
 
             vertices.forEach(v => {
-                points.push(new THREE.Vector3(v.x, 0.1, v.y));
+                points.push(new THREE.Vector3(v.x, 1.0, v.y));
             });
             if (points.length > 0) points.push(points[0]);
 
@@ -288,6 +288,7 @@ export class Grid {
             else if (body.label === 'fruit') material = this.debugMats.fruit;
 
             const line = new THREE.Line(geometry, material);
+            line.renderOrder = 999;
             this.debugGroup.add(line);
         });
 
@@ -298,11 +299,13 @@ export class Grid {
             const dirY = Math.sin(org.angle);
 
             const points = [
-                new THREE.Vector3(start.x, 0.2, start.y),
-                new THREE.Vector3(start.x + dirX * 4.0, 0.2, start.y + dirY * 4.0)
+                new THREE.Vector3(start.x, 1.0, start.y),
+                new THREE.Vector3(start.x + dirX * 4.0, 1.0, start.y + dirY * 4.0)
             ];
             const geo = new THREE.BufferGeometry().setFromPoints(points);
-            this.debugGroup.add(new THREE.Line(geo, this.debugMats.ray));
+            const line = new THREE.Line(geo, this.debugMats.ray);
+            line.renderOrder = 999;
+            this.debugGroup.add(line);
         });
     }
 
@@ -310,12 +313,12 @@ export class Grid {
 
     // Debug Materials (Cached to prevent leaks)
     private debugMats = {
-        snake: new THREE.LineBasicMaterial({ color: 0x00ff00 }),
-        head: new THREE.LineBasicMaterial({ color: 0xff0000 }),
-        tail: new THREE.LineBasicMaterial({ color: 0xff00ff }),
-        fruit: new THREE.LineBasicMaterial({ color: 0xffff00 }),
-        wall: new THREE.LineBasicMaterial({ color: 0x888888 }),
-        ray: new THREE.LineBasicMaterial({ color: 0x00ffff })
+        snake: new THREE.LineBasicMaterial({ color: 0x00ff00, depthTest: false, transparent: true }),
+        head: new THREE.LineBasicMaterial({ color: 0xff0000, depthTest: false, transparent: true }),
+        tail: new THREE.LineBasicMaterial({ color: 0xff00ff, depthTest: false, transparent: true }),
+        fruit: new THREE.LineBasicMaterial({ color: 0xffff00, depthTest: false, transparent: true }),
+        wall: new THREE.LineBasicMaterial({ color: 0x888888, depthTest: false, transparent: true }),
+        ray: new THREE.LineBasicMaterial({ color: 0x00ffff, depthTest: false, transparent: true })
     };
 
     public update(dt: number, snakePath: THREE.Vector3[]) {
@@ -509,6 +512,8 @@ export class Grid {
             // Check clearance 
             if (snakePath.length > 0 && snakePath[0].distanceTo(new THREE.Vector3(rx, 0, rz)) < 8) continue;
 
+            const conf = CONFIG.ORGANISMS;
+
             // 1. Create Head Body (Driver)
             const headBody = Matter.Bodies.circle(rx, rz, 0.6, {
                 frictionAir: 0,
@@ -524,10 +529,13 @@ export class Grid {
             const nodes: BlobNode[] = [];
             const segmentBodies: Matter.Body[] = [];
 
-            // Head Node (Index 0)
+            // Head Node
+            const count = conf.BLOB_COUNT.MIN + Math.floor(Math.random() * (conf.BLOB_COUNT.MAX - conf.BLOB_COUNT.MIN + 1));
+            const headR = conf.RADIUS.MIN + Math.random() * (conf.RADIUS.MAX - conf.RADIUS.MIN);
+
             const headNode: BlobNode = {
                 pos: new THREE.Vector3(rx, 0, rz),
-                r: 0.6 + Math.random() * 0.4,
+                r: headR,
                 parentIndex: -1,
                 dist: 0,
                 wigglePhase: Math.random() * 10
@@ -535,23 +543,17 @@ export class Grid {
             nodes.push(headNode);
             segmentBodies.push(headBody);
 
-            // 3. Child Nodes (Cluster around head)
-            const count = 5 + Math.floor(Math.random() * 4); // 5-9 blobs
-
+            // 3. Child Nodes
             for (let i = 0; i < count; i++) {
-                // Attach to Head (0) for star shape, or mix?
-                // For a proper blob, cluster them around the center.
-                // We use constraints to keep them together.
-
                 const parentIdx = 0;
                 const parent = nodes[parentIdx];
 
                 const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5);
-                const dist = 0.6 + Math.random() * 0.6; // Close cluster
+                const dist = conf.SPACING.MIN + Math.random() * (conf.SPACING.MAX - conf.SPACING.MIN);
 
                 const nx = parent.pos.x + Math.cos(angle) * dist;
                 const nz = parent.pos.z + Math.sin(angle) * dist;
-                const r = 0.5 + Math.random() * 0.4;
+                const r = conf.RADIUS.MIN + Math.random() * (conf.RADIUS.MAX - conf.RADIUS.MIN);
 
                 nodes.push({
                     pos: new THREE.Vector3(nx, 0, nz),
@@ -564,7 +566,7 @@ export class Grid {
                 // Create Sensor Body for this blob part
                 const body = Matter.Bodies.circle(nx, nz, r * 0.7, {
                     isSensor: true,
-                    isStatic: true,
+                    isStatic: true, // They drag with visuals
                     collisionFilter: {
                         category: this.CAT_ORGANISM,
                         mask: this.CAT_SNAKE | this.CAT_WALL
@@ -576,10 +578,11 @@ export class Grid {
             }
 
             const visuals = new OrganismVisuals();
-            // Initial Visual Update
             const renderData = nodes.map(n => ({ x: n.pos.x, z: n.pos.z, r: n.r }));
             visuals.update(renderData, 0);
             this.mesh.add(visuals.mesh);
+
+            const speed = conf.SPEED.MIN + Math.random() * (conf.SPEED.MAX - conf.SPEED.MIN);
 
             this.organisms.push({
                 id: this.nextOrganismId++,
@@ -587,7 +590,7 @@ export class Grid {
                 segmentBodies: segmentBodies,
                 nodes: nodes,
                 angle: Math.random() * Math.PI * 2,
-                speed: 0.15 + Math.random() * 0.15,
+                speed: speed,
                 visuals: visuals,
                 appearing: true,
                 vanishing: false,
