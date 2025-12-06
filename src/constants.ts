@@ -7,9 +7,10 @@ export const CONFIG = {
     },
     SNAKE: {
         INITIAL_LENGTH: 15,
-        SPEED: 15.0, // Units per second
-        CIRCLE_RADIUS: 0.75, // 1.5 Cells Diameter (Cell size 1.0)
-        PULSE_SPEED: 5.0,
+        SPEED: 5,
+        CIRCLE_RADIUS: 0.75, // Radius of the snake's body segments
+        PULSE_SPEED: 4.0, // Speed of the pulsing animation
+        PULSE_AMPLITUDE: 0.05, // Amplitude of body size fluctuation
         HEAD_COLOR: 0x00ff00, // Green
         BODY_COLOR: 0x44aa44,
         EYE_COLOR: 0xffffff,
