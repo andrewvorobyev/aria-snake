@@ -232,7 +232,7 @@ void main() {
 }
 `;
 
-class SnakeEye {
+export class SnakeEye {
     public mesh: THREE.Group;
     private eyeContainer: THREE.Group;
     private eyeBall: THREE.Mesh;

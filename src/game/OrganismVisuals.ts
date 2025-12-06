@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CONFIG } from '../constants';
 
 const ORGANISM_VERTEX_SHADER = `
 varying vec2 vUv;
@@ -112,17 +113,21 @@ void main() {
 }
 `;
 
+
+
+// ... (Shader Code Omitted, assume it remains above) ...
+
 export class OrganismVisuals {
-    public mesh: THREE.Mesh;
+    public mesh: THREE.Group;
+    private bodyMesh: THREE.Mesh;
     private material: THREE.ShaderMaterial;
 
+    // Internal Eye Pool
+    private eyePool: THREE.Group[] = [];
+    private eyes: Map<number, { mesh: THREE.Group, blinkTimer: number, nextBlink: number, isBlinking: boolean }> = new Map();
+
     constructor() {
-        // Plane covering the potential area
-        // We might need to move this plane with the organism or make it large enough?
-        // Making it large fixed plane for now, centered at 0? 
-        // No, efficiency: Plane should follow the organism center.
-        // But shader expects world coords.
-        // Let's make a reasonable sized plane and update its position to the blob centroid.
+        this.mesh = new THREE.Group();
 
         const geometry = new THREE.PlaneGeometry(25, 25);
         geometry.rotateX(-Math.PI / 2);
@@ -133,38 +138,165 @@ export class OrganismVisuals {
             uniforms: {
                 uTime: { value: 0 },
                 uColor: { value: new THREE.Color(1, 0, 1) },
-                uBlobs: { value: new Array(20).fill(0).map(() => new THREE.Vector3()) }, // Packed as vec3 array? No, ThreeJS handles vec3 array 
+                uBlobs: { value: new Array(20).fill(0).map(() => new THREE.Vector3()) },
                 uBlobCount: { value: 0 }
             },
             transparent: true,
-            depthWrite: false, // Semi-transparent fuzz
+            depthWrite: false,
         });
 
-        this.mesh = new THREE.Mesh(geometry, this.material);
-        this.mesh.renderOrder = 100; // Above floor
-        this.mesh.frustumCulled = false; // Prevent culling if blob moves out of plane center (we will move plane though)
+        this.bodyMesh = new THREE.Mesh(geometry, this.material);
+        this.bodyMesh.renderOrder = 100;
+        this.bodyMesh.frustumCulled = false;
+
+        this.mesh.add(this.bodyMesh);
     }
 
-    public update(nodes: { x: number, z: number, r: number }[], dt: number) {
+    private createEye(): THREE.Group {
+        const group = new THREE.Group();
+
+        // Sclera
+        const sGeo = new THREE.SphereGeometry(0.25, 16, 16);
+        const sMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const sclera = new THREE.Mesh(sGeo, sMat);
+        sclera.scale.set(1.0, 0.1, 1.0); // Flat disc
+        group.add(sclera);
+
+        // Pupil
+        const pGeo = new THREE.SphereGeometry(0.12, 12, 12);
+        const pMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+        const pupil = new THREE.Mesh(pGeo, pMat);
+        pupil.position.y = 0.05;
+        pupil.scale.set(1.0, 0.1, 1.0);
+        pupil.name = 'pupil'; // Tag for updates
+        group.add(pupil);
+
+        return group;
+    }
+
+    private getEye(): THREE.Group {
+        if (this.eyePool.length > 0) return this.eyePool.pop()!;
+        return this.createEye();
+    }
+
+    private returnEye(eye: THREE.Group) {
+        eye.visible = false;
+        this.mesh.remove(eye);
+        this.eyePool.push(eye);
+    }
+
+    public update(nodes: { x: number, z: number, r: number, hasEye?: boolean }[], dt: number) {
         this.material.uniforms.uTime.value += dt;
+        const t = this.material.uniforms.uTime.value;
 
         const count = Math.min(nodes.length, 20);
         this.material.uniforms.uBlobCount.value = count;
 
-        // Calculate Centroid to move the mesh
         let cx = 0, cz = 0;
-
         const blobs = this.material.uniforms.uBlobs.value as THREE.Vector3[];
+
+        const currentEyeIndices = new Set<number>();
+
         for (let i = 0; i < count; i++) {
-            blobs[i].set(nodes[i].x, nodes[i].z, nodes[i].r);
-            cx += nodes[i].x;
-            cz += nodes[i].z;
+            const node = nodes[i];
+            blobs[i].set(node.x, node.z, node.r);
+            cx += node.x;
+            cz += node.z;
+
+
+            if (node.hasEye) {
+                currentEyeIndices.add(i);
+
+                const eyesConf = CONFIG.ORGANISMS.EYES;
+
+                // Get or Create Eye State
+                let eyeState = this.eyes.get(i);
+                if (!eyeState) {
+                    const mesh = this.getEye();
+                    mesh.visible = true;
+                    // Initial scale
+                    mesh.scale.setScalar(0.7);
+                    this.mesh.add(mesh);
+
+                    const minB = eyesConf.BLINK_INTERVAL.MIN;
+                    const maxB = eyesConf.BLINK_INTERVAL.MAX;
+
+                    eyeState = {
+                        mesh: mesh,
+                        blinkTimer: 0,
+                        nextBlink: minB + Math.random() * (maxB - minB),
+                        isBlinking: false
+                    };
+                    this.eyes.set(i, eyeState);
+                }
+
+                // --- Update Eye Visuals ---
+                const { mesh } = eyeState;
+
+                // 1. Blink Logic
+                eyeState.blinkTimer += dt;
+                let openY = 0.7; // Base scale
+                if (eyeState.isBlinking) {
+                    const blinkDur = 0.15;
+                    const bt = eyeState.blinkTimer / blinkDur;
+                    if (bt >= 1.0) {
+                        eyeState.isBlinking = false;
+                        const minB = eyesConf.BLINK_INTERVAL.MIN;
+                        const maxB = eyesConf.BLINK_INTERVAL.MAX;
+                        eyeState.nextBlink = minB + Math.random() * (maxB - minB);
+                        eyeState.blinkTimer = 0;
+                    } else {
+                        // Close 1 -> 0 -> 1
+                        openY *= (1.0 - Math.sin(bt * Math.PI));
+                        // Ensure minimal thickness so it doesn't invert/glitch
+                        if (openY < 0.05) openY = 0.05;
+                    }
+                } else if (eyeState.blinkTimer > eyeState.nextBlink) {
+                    eyeState.isBlinking = true;
+                    eyeState.blinkTimer = 0;
+                }
+
+                // Apply Scale (Squash Y to blink)
+                mesh.scale.set(0.7, openY, 0.7); // 0.7 is base visual scale
+
+                // 2. Position (Wander inside blob)
+                const seed = i * 99.0;
+                // Wander 30% of radius
+                const wanderR = node.r * 0.3;
+
+                // Slow down the wandering motion
+                const ws = eyesConf.WANDER_SPEED;
+                const wx = Math.sin(t * ws + seed) * wanderR;
+                const wz = Math.cos(t * (ws * 0.8) + seed * 1.1) * wanderR;
+
+                mesh.position.set(node.x + wx, 0.5, node.z + wz);
+
+                // 3. Pupil Look
+                // Loop around slowly
+                const pupil = mesh.getObjectByName('pupil');
+                if (pupil) {
+                    // Slow down pupil movement
+                    const ps = eyesConf.PUPIL_SPEED;
+                    pupil.position.x = Math.cos(t * ps + seed) * 0.08;
+                    pupil.position.z = Math.sin(t * (ps * 0.8) + seed) * 0.08;
+                    // Reset Y because scaling might affect
+                    pupil.position.y = 0.06;
+                }
+            }
+        }
+
+        // Cleanup
+        for (const [idx, state] of this.eyes) {
+            if (!currentEyeIndices.has(idx)) {
+                this.returnEye(state.mesh);
+                this.eyes.delete(idx);
+            }
         }
 
         if (count > 0) {
             cx /= count;
             cz /= count;
-            this.mesh.position.set(cx, 0.1, cz); // Center mesh on blob
+            this.bodyMesh.position.set(cx, 0.1, cz);
         }
     }
 

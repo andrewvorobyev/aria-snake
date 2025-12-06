@@ -25,10 +25,16 @@ export const CONFIG = {
     ORGANISMS: {
         COUNT: 10,
         BLOB_COUNT: { MIN: 2, MAX: 12 },
-        RADIUS: { MIN: 0.4, MAX: 0.9 },
-        SPACING: { MIN: 1.0, MAX: 2.2 },
+        RADIUS: { MIN: 0.4, MAX: 1.3 },
+        SPACING: { MIN: 0.5, MAX: 1.8 },
         SPEED: { MIN: 0.03, MAX: 0.05 },
         LEADER_CHANGE_INTERVAL: { MIN: 2.0, MAX: 6.0 },
+        EYE_COUNT: { MIN: 1, MAX: 3 },
+        EYES: {
+            WANDER_SPEED: 0.0075, // Lower = Slower
+            PUPIL_SPEED: 0.15,
+            BLINK_INTERVAL: { MIN: 2.0, MAX: 8.0 }
+        }
     },
     FRUIT: {
         SIZE_CELLS: 3,

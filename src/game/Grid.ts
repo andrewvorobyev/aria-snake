@@ -13,7 +13,9 @@ interface BlobNode {
     parentIndex: number;
     dist: number;
     wigglePhase: number;
+    hasEye: boolean;
 }
+
 
 interface Organism {
     id: number;
@@ -300,7 +302,7 @@ export class Grid {
 
             // Pass Node Data to Visuals
             // Maps nodes to flat array for Shader
-            const renderNodes = org.nodes.map(n => ({ x: n.pos.x, z: n.pos.z, r: n.r }));
+            const renderNodes = org.nodes.map(n => ({ x: n.pos.x, z: n.pos.z, r: n.r, hasEye: n.hasEye }));
             org.visuals.update(renderNodes, dt);
             if (org.color) org.visuals.setColor(org.color);
         }
@@ -450,7 +452,8 @@ export class Grid {
                 r: headR,
                 parentIndex: -1,
                 dist: 0,
-                wigglePhase: Math.random() * 10
+                wigglePhase: Math.random() * 10,
+                hasEye: false
             };
             nodes.push(headNode);
             segmentBodies.push(headBody);
@@ -472,7 +475,8 @@ export class Grid {
                     r: r,
                     parentIndex: parentIdx,
                     dist: dist,
-                    wigglePhase: Math.random() * 10
+                    wigglePhase: Math.random() * 10,
+                    hasEye: false
                 });
 
                 // Create Sensor Body for this blob part
@@ -489,8 +493,28 @@ export class Grid {
                 segmentBodies.push(body);
             }
 
+            // --- Assign Eyes ---
+            const totalNodes = nodes.length;
+            const eyeMin = conf.EYE_COUNT.MIN;
+            const eyeMax = Math.min(conf.EYE_COUNT.MAX, totalNodes); // Cannot have more eyes than nodes
+            const numEyes = eyeMin + Math.floor(Math.random() * (eyeMax - eyeMin + 1));
+
+            // Create array of indices [0, 1, 2, ... totalNodes-1]
+            const indices = Array.from({ length: totalNodes }, (_, i) => i);
+
+            // Shuffle indices (Fisher-Yates)
+            for (let i = indices.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [indices[i], indices[j]] = [indices[j], indices[i]];
+            }
+
+            // Assign eyes to the first 'numEyes' indices
+            for (let i = 0; i < numEyes; i++) {
+                nodes[indices[i]].hasEye = true;
+            }
+
             const visuals = new OrganismVisuals();
-            const renderData = nodes.map(n => ({ x: n.pos.x, z: n.pos.z, r: n.r }));
+            const renderData = nodes.map(n => ({ x: n.pos.x, z: n.pos.z, r: n.r, hasEye: n.hasEye }));
             visuals.update(renderData, 0);
             this.mesh.add(visuals.mesh);
 
