@@ -87,12 +87,34 @@ void main() {
         if (i >= uPointCount) break;
         
         // Calculate Radius
+        // Calculate Radius (Tapering Profile)
         float pointRadius;
+        
+        float tRadius = float(i) / float(max(uPointCount, 1)); // 0 (Head) to 1 (Tail)
+        
+        // Profile:
+        // Head (0.0) -> Start Thick
+        // Middle (0.4) -> Bulge Fatter (+20%)
+        // Tail (1.0) -> Taper Thin (50%)
+        
+        float baseR = ${CONFIG.SNAKE.CIRCLE_RADIUS};
+        
+        // Quadratic bezier-ish or sine curve for profile
+        // Let's use a custom curve
+        float taper = 1.0;
+        if (tRadius < 0.4) {
+            // 0 to 0.4: Grow from 1.0 to 1.2
+            taper = 1.0 + smoothstep(0.0, 0.4, tRadius) * 0.25;
+        } else {
+            // 0.4 to 1.0: Shrink from 1.2 to 0.4
+            taper = 1.25 - smoothstep(0.4, 1.0, tRadius) * 0.85; 
+        }
+
         if (i == 0) {
             pointRadius = 0.75; 
         } else {
             float wave = sin(uTime * 5.0 - float(i) * 0.5);
-            pointRadius = ${CONFIG.SNAKE.CIRCLE_RADIUS} + wave * ${CONFIG.SNAKE.PULSE_AMPLITUDE}; 
+            pointRadius = (baseR * taper) + wave * ${CONFIG.SNAKE.PULSE_AMPLITUDE}; 
         }
         
         vec2 diff = p - uPoints[i];
