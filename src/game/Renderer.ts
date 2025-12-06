@@ -61,7 +61,9 @@ export class Renderer {
         const height = window.innerHeight;
 
         this.renderer.setSize(width, height);
-        this.renderer.setPixelRatio(window.devicePixelRatio);
+        // Cap pixel ratio at 1.5 for performance on Retina/High-DPI screens
+        // The metaball shader is expensive (O(N) per pixel), so 4K+ rendering is too heavy.
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 
         // Dispatch custom event for game logic to update grid
         window.dispatchEvent(new CustomEvent('game-resize', { detail: { aspect: width / height } }));

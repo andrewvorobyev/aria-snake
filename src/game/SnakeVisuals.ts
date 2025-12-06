@@ -118,6 +118,14 @@ void main() {
         }
         
         vec2 diff = p - uPoints[i];
+        
+        // --- OPTIMIZATION: SKIP FAR POINTS ---
+        // If point is too far, weight w will be exp(-4 * large) ~= 0
+        // Max radius is ~1.0. If dist > 2.0, exp(-4*(2.0-1.0)) = exp(-4) = 0.018. 
+        // If dist > 3.0, exp(-8) ~= 0.0003. 
+        // Let's cull cheap.
+        if (length(diff) > 2.5) continue;
+
         float dist = length(diff) - pointRadius;
         float w = exp(-k * dist);
         
