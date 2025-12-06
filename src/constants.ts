@@ -62,5 +62,10 @@ export const CONFIG = {
         RADIUS_START: 0.6,
         RADIUS_END: 1.3,
         DARKNESS: 0.4, // Lower is darker
+    },
+    AUDIO: {
+        MASTER_VOLUME: 1.0,
+        MUSIC_VOLUME: 0.9,
+        SFX_VOLUME: 0.5
     }
 };

@@ -5,6 +5,7 @@ import { Input } from './Input';
 import { Snake } from './Snake';
 import { Grid } from './Grid';
 import { Background } from './Background';
+import { Audio } from './Audio';
 
 export class Game {
     private renderer: Renderer;
@@ -12,6 +13,8 @@ export class Game {
     private snake: Snake;
     private grid: Grid;
     private background: Background;
+    private audio: Audio;
+    private musicStarted: boolean = false;
     private lastTime: number = 0;
     private frameCount: number = 0;
     private timeAccumulator: number = 0;
@@ -20,6 +23,7 @@ export class Game {
     constructor() {
         this.renderer = new Renderer('app');
         this.input = new Input();
+        this.audio = new Audio();
 
         // Grid first to know bounds? Grid resizes based on camera/window, so initially we rely on current window.
         this.grid = new Grid(this.renderer.getAspectRatio());
@@ -135,8 +139,14 @@ export class Game {
         // Fruit Collection
         const newHeadPos = this.snake.getHeadPosition();
         if (this.grid.handleFruitCollection(newHeadPos.x, newHeadPos.z, r)) {
-            console.log("Nom!");
+            this.audio.playEatSound();
             this.snake.triggerEat();
+        }
+
+        // Start background music on first input (user gesture required for AudioContext)
+        if (!this.musicStarted && (direction.x !== 0 || direction.y !== 0)) {
+            this.audio.startBackgroundMusic();
+            this.musicStarted = true;
         }
     }
 
