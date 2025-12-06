@@ -54,9 +54,9 @@ void main() {
     vec2 uv = vUv;
     float time = uTime * 0.1;
 
-    // --- 1. Background Gradient (Deep Marine) ---
-    vec3 bgA = vec3(0.06, 0.11, 0.18); 
-    vec3 bgB = vec3(0.01, 0.02, 0.06); 
+    // --- 1. Background Gradient (Pleasant Fresh Green) ---
+    vec3 bgA = vec3(0.1, 0.2, 0.15); // Fresh Emerald
+    vec3 bgB = vec3(0.02, 0.08, 0.05); // Deep Forest
     vec3 col = mix(bgA, bgB, uv.y + 0.2 * sin(time * 0.5));
 
     // --- 2. Fluid Currents (Volumetric) ---
@@ -74,11 +74,11 @@ void main() {
     float fluidNoise = snoise(rotUV + warp * 0.4 - vec2(time * 0.05, time * 0.1));
     float currents = smoothstep(-0.4, 1.0, fluidNoise);
     
-    // Teal/Aqua Caustics
-    vec3 currentCol = vec3(0.2, 0.5, 0.6); 
+    // Minty Light
+    vec3 currentCol = vec3(0.5, 0.9, 0.6); 
     col += currents * currentCol * 0.12; 
 
-    // --- 3. Drifting Plankton ---
+    // --- 3. Drifting Pollen ---
     float dustTime = uTime * 0.03; 
     vec2 dustUV = uv * 6.0; 
     
@@ -90,18 +90,16 @@ void main() {
     float n2 = snoise(dustUV * 0.5 + dustWarp * 0.5 + vec2(dustTime * 0.5, dustTime));
     float speck2 = smoothstep(0.4, 0.9, n2);
     
-    vec3 dustCol = vec3(0.4, 0.7, 0.8);
+    // Soft Cream Pollen
+    vec3 dustCol = vec3(1.0, 1.0, 0.8);
     col += (speck1 * 0.15 + speck2 * 0.1) * dustCol;
 
-    // --- 4. Noise / Grain (Texture) ---
+    // --- 4. Noise / Grain ---
+    float grain = rand(uv * 2.0 + vec2(uTime * 1.5)); 
+    col += (grain - 0.5) * 0.08; 
     
-    // High Frequency Static/Solids suspended in water
-    float grain = rand(uv * 2.0 + vec2(uTime * 1.5)); // Animated Static
-    col += (grain - 0.5) * 0.08; // Subtle grit
-    
-    // Extra Perlin details
     float detail = snoise(uv * 20.0 - uTime * 0.1);
-    col += detail * 0.02; // Very faint turbulence
+    col += detail * 0.02; 
 
     // --- 5. Vignette ---
     float dist = distance(uv, vec2(0.5));
