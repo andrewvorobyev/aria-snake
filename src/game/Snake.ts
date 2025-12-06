@@ -105,8 +105,15 @@ export class Snake {
         this.pulseTime += dt * CONFIG.SNAKE.PULSE_SPEED;
         this.bodyParts.forEach((part, i) => {
             const offset = i * 0.5;
-            const scale = 1 + Math.sin(this.pulseTime - offset) * 0.2;
+            // Pulse Size
+            const scale = 1 + Math.sin(this.pulseTime - offset) * 0.1; // Reduced pulse for better look
             part.scale.setScalar(scale);
+
+            // Rainbow Color
+            // Cycle Hue over time and along body
+            const hue = (this.pulseTime * 0.1 + i * 0.05) % 1;
+            const mat = part.material as THREE.MeshStandardMaterial;
+            mat.color.setHSL(hue, 1.0, 0.5);
         });
 
         // Animate Eyes (Blink)
@@ -118,7 +125,7 @@ export class Snake {
     }
 
     private updateBodySegments() {
-        const spacing = CONFIG.SNAKE.CIRCLE_RADIUS * 1.5;
+        const spacing = CONFIG.SNAKE.CIRCLE_RADIUS * 0.7; // Overlap for continuous snake lookdex = 0;
         let pathIndex = 0;
 
         for (let i = 0; i < this.bodyParts.length; i++) {

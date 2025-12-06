@@ -1,15 +1,14 @@
 
-
 export const CONFIG = {
     GRID: {
         CELL_SIZE: 1.0, // World units
         FIXED_SIDE: 20, // One dimension is 100 units
-        TARGET_OBSTACLE_DENSITY: 0.1, // 10%
+        TARGET_OBSTACLE_DENSITY: 0.05, // 10%
     },
     SNAKE: {
-        INITIAL_LENGTH: 5,
+        INITIAL_LENGTH: 15,
         SPEED: 15.0, // Units per second
-        CIRCLE_RADIUS: 0.4,
+        CIRCLE_RADIUS: 0.75, // 1.5 Cells Diameter (Cell size 1.0)
         PULSE_SPEED: 5.0,
         HEAD_COLOR: 0x00ff00, // Green
         BODY_COLOR: 0x44aa44,

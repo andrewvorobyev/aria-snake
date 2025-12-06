@@ -181,21 +181,24 @@ export class Grid {
         const halfW = this.width / 2;
         const halfD = this.depth / 2;
 
-        // Check boundaries (taking radius into account to keep snake fully inside or at least center inside?)
-        // Let's block center at boundary for now
-        if (x < -halfW || x > halfW || z < -halfD || z > halfD) {
+        // Boundary check. Snake center must be within bounds minus radius? 
+        // User said "move based on float". Usually center must stay inside or at least not go fully out.
+        // Let's constrain center inside limits - radius.
+        if (x < -halfW + radius || x > halfW - radius || z < -halfD + radius || z > halfD - radius) {
             return true;
         }
 
         // Obstacles
-        for (const obs of this.obstacles) {
-            // AABB check for optimization, then radius if needed. 
-            // Obstacle is Cube ~0.9 size centered at obs.x, obs.z
-            // Snake is sphere radius 'r'
-            // Simple Circle vs AABB
+        // Obstacles are at integer coords (implicit). Actually my code stores them at float 'obs.x'.
+        // But they are spawned at integer+0.5 coords. 
+        // Size: ~0.9 (BoxGeometry).
+        // Collision: Circle (x,z, radius) vs AABB (obs.x, obs.z, size).
 
-            const closestX = Math.max(obs.x - 0.45, Math.min(x, obs.x + 0.45));
-            const closestZ = Math.max(obs.z - 0.45, Math.min(z, obs.z + 0.45));
+        const obsHalfSize = (CONFIG.GRID.CELL_SIZE * 0.9) / 2;
+
+        for (const obs of this.obstacles) {
+            const closestX = Math.max(obs.x - obsHalfSize, Math.min(x, obs.x + obsHalfSize));
+            const closestZ = Math.max(obs.z - obsHalfSize, Math.min(z, obs.z + obsHalfSize));
 
             const distanceX = x - closestX;
             const distanceZ = z - closestZ;
