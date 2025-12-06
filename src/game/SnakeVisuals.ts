@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../constants';
 
-const MAX_POINTS = 100;
+const MAX_POINTS = 200;
 
 const VERTEX_SHADER = `
 varying vec2 vUv;
@@ -28,6 +28,7 @@ uniform float uRadius;
 uniform float uEatTime; // 0..Duration, negative if inactive
 uniform vec3 uEatColor; // Configured color
 uniform float uPulseSpeed;
+uniform vec3 uSpineColor; // New Spine Color
 
 // --- NOISE FUNCTIONS ---
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -150,11 +151,6 @@ void main() {
     float pattern = patternSum * normFactor;
     
     vec3 color = baseColor;
-    
-    // ... (Rest of existing lighting/comp logic omitted for brevity, handled by keeping fragment shader logic that follows loop)
-    // Actually, I must return the FULL shader content or valid chunks. 
-    // The previous implementation had complex lighting logic after the loop.
-    // I will keep that lighting logic intact by outputting everything up to gl_FragColor.
 
     // --- Spines / Cilia ---
     float spineNoise = snoise(p * 15.0 - uTime * 2.0); 
@@ -179,8 +175,23 @@ void main() {
     float rim = pow(1.0 - max(0.0, dot(normal, viewDir)), 3.0);
     
     // Comp
+    // Map Pattern to visual features
+    // pattern 0..1 (Spots)
+    // Darken inside spots (Nuclei)
     vec3 tissueColor = baseColor * (0.8 + 0.2 * (1.0 - pattern));
-    float veinMask = pow(1.0 - abs(pattern - 0.5) * 2.0, 4.0);
+    
+    // RED SPINE
+    // Thin and Continuous
+    // Tighten the range deep inside the signed distance field.
+    // The deeper the value (more negative), the more central.
+    float coreMask = smoothstep(-0.55, -0.65, d); 
+    tissueColor = mix(tissueColor, uSpineColor, coreMask); 
+
+    // Veins (Edges of spots)
+    // glowing network
+    float veinMask = 1.0 - abs(pattern - 0.5) * 2.0; // Peak at 0.5
+    veinMask = pow(veinMask, 4.0);
+    
     vec3 finalColor = tissueColor * diffuse;
     finalColor = mix(finalColor, vec3(0.1, 0.0, 0.2), veinMask * 0.5);
     float membrane = smoothstep(-0.2, 0.0, d);
@@ -192,7 +203,7 @@ void main() {
 }
 `;
 
-export class SnakeEye { // ... (Keep SnakeEye as is, it's fine)
+export class SnakeEye { // ... (Keep SnakeEye as is)
     public mesh: THREE.Group;
     private eyeContainer: THREE.Group;
     private eyeBall: THREE.Mesh;
@@ -226,8 +237,6 @@ export class SnakeEye { // ... (Keep SnakeEye as is, it's fine)
 
         this.setNextBlink();
     }
-    // ... (Methods can stay same, but for brevity I will omit unchanged methods in replacement if possible, 
-    // BUT ReplaceFileContent requires contiguous block. I'll just include the methods I need to match range.)
     private setNextBlink() {
         this.nextBlink = 1.0 + Math.random() * 3.0;
         this.blinkTimer = 0;
@@ -273,7 +282,7 @@ export class SnakeVisuals {
     private slimeMesh: THREE.Mesh;
     private material: THREE.ShaderMaterial;
     private eyes: SnakeEye[] = [];
-    private eatTimer: number = -1.0; // Negative = inactive
+    private eatTimer: number = -1.0;
 
     constructor() {
         this.mesh = new THREE.Group();
@@ -291,7 +300,8 @@ export class SnakeVisuals {
                 uRadius: { value: 0.35 },
                 uEatTime: { value: -1.0 },
                 uEatColor: { value: new THREE.Color(CONFIG.SNAKE.EAT_PULSE.COLOR) },
-                uPulseSpeed: { value: CONFIG.SNAKE.EAT_PULSE.SPEED }
+                uPulseSpeed: { value: CONFIG.SNAKE.EAT_PULSE.SPEED },
+                uSpineColor: { value: new THREE.Color(CONFIG.SNAKE.SPINE_COLOR) }
             },
             transparent: true,
             depthWrite: true,
@@ -301,34 +311,27 @@ export class SnakeVisuals {
         this.slimeMesh.position.y = 0.05;
         this.mesh.add(this.slimeMesh);
 
-        // Create 2 Eyes
         const leftEye = new SnakeEye(-1);
         const rightEye = new SnakeEye(1);
         this.eyes.push(leftEye, rightEye);
         this.mesh.add(leftEye.mesh);
         this.mesh.add(rightEye.mesh);
     }
-
     public triggerEat() {
         this.eatTimer = 0.0;
     }
-
     public update(dt: number, snakePath: THREE.Vector3[]) {
         const time = this.material.uniforms.uTime.value + dt;
         this.material.uniforms.uTime.value = time;
 
-        // Update Eat Pulse
         if (this.eatTimer >= 0.0) {
             this.eatTimer += dt;
             if (this.eatTimer > CONFIG.SNAKE.EAT_PULSE.DURATION) {
-                this.eatTimer = -1.0; // End
+                this.eatTimer = -1.0;
             }
         }
         this.material.uniforms.uEatTime.value = this.eatTimer;
 
-        // ... (Rest of logic remains same, just ensuring correct range)
-
-        // Sampling points
         const visualPoints: THREE.Vector2[] = [];
         const maxBlobs = CONFIG.SNAKE.INITIAL_LENGTH;
 
@@ -336,10 +339,10 @@ export class SnakeVisuals {
             visualPoints.push(new THREE.Vector2(snakePath[0].x, snakePath[0].z));
 
             let currentPathDist = 0;
-            let nextBlobDist = 0.9;
+            let nextBlobDist = 0.45; // Increased density
 
             for (let i = 0; i < snakePath.length - 1; i++) {
-                if (visualPoints.length >= maxBlobs) break;
+                if (visualPoints.length >= MAX_POINTS) break;
 
                 const p1 = snakePath[i];
                 const p2 = snakePath[i + 1];
@@ -348,7 +351,7 @@ export class SnakeVisuals {
                 if (segLen < 0.0001) continue;
 
                 while (currentPathDist + segLen >= nextBlobDist) {
-                    if (visualPoints.length >= maxBlobs) break;
+                    if (visualPoints.length >= MAX_POINTS) break;
 
                     const distOnSeg = nextBlobDist - currentPathDist;
                     const alpha = distOnSeg / segLen;
@@ -356,7 +359,7 @@ export class SnakeVisuals {
                     const interpZ = p1.z + (p2.z - p1.z) * alpha;
 
                     visualPoints.push(new THREE.Vector2(interpX, interpZ));
-                    nextBlobDist += 0.9;
+                    nextBlobDist += 0.45;
                 }
                 currentPathDist += segLen;
             }
@@ -368,7 +371,6 @@ export class SnakeVisuals {
             this.material.uniforms.uPoints.value[i] = visualPoints[i];
         }
 
-        // Update Eyes
         if (visualPoints.length > 1) {
             const head = visualPoints[0];
             const neck = visualPoints[1];
@@ -380,7 +382,6 @@ export class SnakeVisuals {
             }
         }
     }
-
     public triggerBlink() {
         for (const eye of this.eyes) {
             eye.triggerBlink();

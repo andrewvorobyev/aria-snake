@@ -19,7 +19,8 @@ export const CONFIG = {
             SPEED: 1.5, // How fast the pulse travels down body
             DURATION: 1.5, // Total time active
             COLOR: 0xff0000
-        }
+        },
+        SPINE_COLOR: 0xff2244
     },
     COLORS: {
         BACKGROUND: 0x111111,
