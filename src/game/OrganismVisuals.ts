@@ -95,11 +95,10 @@ void main() {
     if (alpha <= 0.01) discard;
 
     // Color Logic
-    vec3 darkCore = vec3(0.01, 0.01, 0.01);
+    // Center is dark version of color, edge is pure color
+    vec3 darkCore = uColor * 0.25; 
 
     // Mix Mask: Core vs Edge
-    // d ranges from -Radius (center) to +Fuzz (outside)
-    // We want deep black center, glowing edge.
     float mixMask = smoothstep(-0.4, 0.1, d); 
     
     vec3 col = mix(darkCore, uColor, mixMask);
