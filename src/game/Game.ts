@@ -96,6 +96,11 @@ export class Game {
 
         const finalMove = new THREE.Vector3(moveX, 0, moveZ);
         this.snake.move(finalMove);
+
+        // Update entities
+        const gridDt = Math.min(dt, 0.1);
+        // Avoid large delta spikes for logic spawn
+        this.grid.update(gridDt, this.snake.getPath());
         this.snake.animate(dt);
 
         // Fruit Collection
@@ -103,9 +108,6 @@ export class Game {
         if (this.grid.handleFruitCollection(newHeadPos.x, newHeadPos.z, r)) {
             console.log("Nom!");
         }
-
-        // Grid Update (spawning obstacles/fruit)
-        this.grid.update(dt, newHeadPos);
     }
 
     private resetGame() {

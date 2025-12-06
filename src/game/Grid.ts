@@ -107,7 +107,7 @@ export class Grid {
         this.mesh.add(lines);
     }
 
-    public update(dt: number, snakeHeadPos: THREE.Vector3) {
+    public update(dt: number, snakePath: THREE.Vector3[]) {
         // 1. Manage Obstacles
         const totalCells = (this.width / CONFIG.GRID.CELL_SIZE) * (this.depth / CONFIG.GRID.CELL_SIZE);
         const targetCount = Math.floor(totalCells * CONFIG.GRID.TARGET_OBSTACLE_DENSITY);
@@ -122,17 +122,17 @@ export class Grid {
 
         // Spawn new
         if (this.obstacles.length < targetCount) {
-            this.spawnObstacle(snakeHeadPos);
+            this.spawnObstacle(snakePath);
         }
 
         // 2. Manage Fruit
         if (this.fruits.length < CONFIG.FRUIT.TARGET_COUNT) {
-            this.spawnFruit(snakeHeadPos);
+            this.spawnFruit(snakePath);
         }
     }
 
-    private spawnObstacle(snakeH: THREE.Vector3) {
-        const pos = this.getRandomEmptyCell(snakeH, 5);
+    private spawnObstacle(snakePath: THREE.Vector3[]) {
+        const pos = this.getRandomEmptyCell(snakePath, 5);
         if (pos) {
             const mesh = new THREE.Mesh(this.obstacleGeometry, this.obstacleMaterial);
             mesh.position.set(pos.x, 0.5, pos.z);
@@ -157,10 +157,10 @@ export class Grid {
         this.obstacles.splice(index, 1);
     }
 
-    private spawnFruit(snakeH: THREE.Vector3) {
+    private spawnFruit(snakePath: THREE.Vector3[]) {
         // Need 3x3 clearance
         const size = CONFIG.FRUIT.SIZE_CELLS;
-        const pos = this.getRandomEmptyRegion(snakeH, 2 + size / 2, size);
+        const pos = this.getRandomEmptyRegion(snakePath, 2 + size / 2, size);
 
         if (pos) {
             const mesh = new THREE.Mesh(this.fruitGeometry, this.fruitMaterial);
@@ -228,7 +228,7 @@ export class Grid {
         return false;
     }
 
-    private getRandomEmptyRegion(bboxCenter: THREE.Vector3, bboxRadius: number, regionSizeCells: number): { x: number, z: number } | null {
+    private getRandomEmptyRegion(snakePath: THREE.Vector3[], bboxRadius: number, regionSizeCells: number): { x: number, z: number } | null {
         // Try N times to find a spot
         for (let i = 0; i < 30; i++) {
             const halfW = this.width / 2;
@@ -244,9 +244,18 @@ export class Grid {
             const cx = kx;
             const cz = kz;
 
-            // Check distance from snake head
-            const d = Math.sqrt((cx - bboxCenter.x) ** 2 + (cz - bboxCenter.z) ** 2);
-            if (d < bboxRadius) continue;
+            // Check distance from snake BODY (Whole Path)
+            let tooClose = false;
+            // Iterate path with stride to performance
+            for (let j = 0; j < snakePath.length; j += 4) {
+                const p = snakePath[j];
+                const d = Math.sqrt((cx - p.x) ** 2 + (cz - p.z) ** 2);
+                if (d < bboxRadius) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            if (tooClose) continue;
 
             // Check occupation for entire region
             // We check if any cell in the 3x3 area is occupied
@@ -281,7 +290,7 @@ export class Grid {
     }
 
     // Helper for single cell (kept for obstacles)
-    private getRandomEmptyCell(bboxCenter: THREE.Vector3, bboxRadius: number): { x: number, z: number } | null {
-        return this.getRandomEmptyRegion(bboxCenter, bboxRadius, 1);
+    private getRandomEmptyCell(snakePath: THREE.Vector3[], bboxRadius: number): { x: number, z: number } | null {
+        return this.getRandomEmptyRegion(snakePath, bboxRadius, 1);
     }
 }

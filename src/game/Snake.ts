@@ -57,6 +57,10 @@ export class Snake {
         return this.position.clone();
     }
 
+    public getPath(): THREE.Vector3[] {
+        return this.path;
+    }
+
     public triggerBlink() {
         this.visuals.triggerBlink();
     }
