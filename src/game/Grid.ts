@@ -387,8 +387,7 @@ export class Grid {
         const allBodies = Matter.Composite.allBodies(this.world);
         const obstacles = allBodies.filter(b =>
             b !== org.headBody &&
-            !org.segmentBodies.includes(b) &&
-            b.label !== 'fruit'
+            !org.segmentBodies.includes(b)
         );
 
         const rayStart = org.headBody.position;
