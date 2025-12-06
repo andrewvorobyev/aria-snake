@@ -102,17 +102,18 @@ vec3 hsv2rgb(vec3 c) {
 
 void main() {
     vec2 p = vWorldPosition.xz;
-    float k = 4.0; 
+    float k = 4.0;
     
     // Accumulators
     float expSum = 0.0;
     vec3 colorSum = vec3(0.0);
-    float bumpSum = 0.0;
+    float patternSum = 0.0; // Organic pattern
     float weightSum = 0.0;
     
     for (int i = 0; i < ${MAX_POINTS}; i++) {
         if (i >= uPointCount) break;
         
+        // Calculate Radius
         float pointRadius;
         if (i == 0) {
             pointRadius = 0.75; 
@@ -125,10 +126,25 @@ void main() {
         float dist = length(diff) - pointRadius;
         float w = exp(-k * dist);
         
-        // --- 1. Texture moves with body ---
-        // Use local coordinate 'diff' for noise lookup
-        // This makes the texture 'stick' to each blob
-        float localBump = cellular(diff * 4.0 + float(i)*13.0); // Offset noise per blob to avoid uniformity
+        // --- ORGANIC PATTERN GENERATION ---
+        
+        // Use local coords 'diff' so pattern moves with body.
+        // Use VERY small offset per segment to ensure continuity (blends seamlessly).
+        vec2 patUV = diff * 2.5; 
+        float drift = float(i) * 0.05; // Gradual evolution along body, no hard breaks
+        
+        // 1. Domain Warping for fluid/tissue look
+        vec2 warp = vec2(
+            snoise(patUV + vec2(uTime * 0.2, drift)),
+            snoise(patUV + vec2(drift, uTime * 0.25) + vec2(4.1, 2.3))
+        );
+        
+        // 2. Base Pattern (Veins/Spots)
+        float noiseVal = snoise(patUV + warp * 0.5 - vec2(uTime * 0.1));
+        
+        // 3. Process into "Spots"
+        // -1..1 -> 0..1
+        float spots = smoothstep(-0.3, 0.6, noiseVal);
         
         // --- Color ---
         float t = float(i) / float(max(uPointCount, 1));
@@ -136,7 +152,7 @@ void main() {
         vec3 col = hsv2rgb(vec3(hue, 0.7, 1.0));
         
         colorSum += col * w;
-        bumpSum += localBump * w;
+        patternSum += spots * w; // Accumulate pattern
         weightSum += w;
         expSum += w;
     }
@@ -145,77 +161,73 @@ void main() {
     float d = -log(expSum) * invK;
     
     // Normalize Weighted Data
-    // Protection against zero weight
     float normFactor = 1.0 / max(weightSum, 0.00001);
     vec3 baseColor = colorSum * normFactor;
-    float baseBump = bumpSum * normFactor;
+    float pattern = patternSum * normFactor;
     
-    // --- 2. Explicit Spines / Cilia (Edge Noise) ---
-    // Perturb the distance field 'd' with high frequency noise to create jagged edges
-    // Use World position 'p' for this so the spines stay fixed in space? 
-    // Or move with snake? Let's fix in space for "moving through fields" look? 
-    // User said "texture moves... spines explicit".
-    // Usually spines are attached.
-    // Let's use 'p' but animated.
-    float spineNoise = snoise(p * 15.0 - uTime * 2.0); // High freq
+    // --- Spines / Cilia (Edge Noise) ---
+    // World space noise for "moving through field" effect
+    float spineNoise = snoise(p * 15.0 - uTime * 2.0); 
     float spineStr = 0.15;
-    
-    // Modulate d
-    // Only affect the surface (d near 0)
     d += spineNoise * spineStr;
 
     if (d > 0.0) discard; 
     
-    // --- 3. Lighting & Surface ---
+    // --- Lighting & Surface ---
     
-    // Normal Calc using perturbed d
-    // We can't easily differentiate 'spineNoise' analytically without recomputing.
-    // Using dFdx/dFdy on 'd' handles the spine perturbation automatically!
-    
+    // Derivative of D for normal
     vec3 dx = dFdx(vec3(d, p.x, p.y));
     vec3 dy = dFdy(vec3(d, p.x, p.y));
-    vec2 slope = vec2(dFdx(d), dFdy(d)) * 50.0; // Scale up for visibility
     
-    // 3. Bump Map (Cellular Noise)
-    // Scale coords for detailed texture
-    vec2 noiseUV = p * 4.0; 
-    float bump = snoise(noiseUV + uTime * 0.2);
-    // Add fine detail
-    float detail = snoise(noiseUV * 3.0 - uTime * 0.1);
+    vec2 slope = vec2(dFdx(d), dFdy(d)) * 30.0; 
     
-    float totalBump = bump * 0.5 + detail * 0.2;
+    // Add Pattern Bump
+    // The pattern changes color AND surface relief
+    slope += vec2(dFdx(pattern), dFdy(pattern)) * 5.0;
     
-    // Perturb slope
-    slope += vec2(dFdx(totalBump), dFdy(totalBump)) * 10.0; // Bump Strength
-    
-    // Reconstruct Normal
     vec3 normal = normalize(vec3(slope.x, slope.y, 1.0));
     
-    // 4. Lighting Calculation
-    vec3 lightDir = normalize(vec3(0.5, 0.5, 1.0));
-    vec3 viewDir = vec3(0.0, 0.0, 1.0); // Ortho top-down view matches Z
+    // Lighting Vectors
+    vec3 lightDir = normalize(vec3(0.5, 0.7, 1.0)); 
+    vec3 viewDir = vec3(0.0, 0.0, 1.0);
     
-    // Diffuse (Wrap around)
+    // Diffuse
     float ndl = dot(normal, lightDir);
-    float diffuse = max(0.0, ndl * 0.5 + 0.5); // Half-Lambert
+    float diffuse = max(0.0, ndl * 0.5 + 0.5); 
     
-    // Specular (Wet look)
+    // Specular
     vec3 halfVec = normalize(lightDir + viewDir);
-    float spec = pow(max(0.0, dot(normal, halfVec)), 64.0);
+    float spec = pow(max(0.0, dot(normal, halfVec)), 16.0); 
     
-    // Rim Light (Fresnel)
+    // Rim
     float rim = 1.0 - max(0.0, dot(normal, viewDir));
     rim = pow(rim, 3.0);
     
-    // Combine
-    vec3 finalColor = baseColor * (diffuse * 0.8 + 0.2); // Ambient + Diffuse
-    finalColor += vec3(1.0) * spec * 0.6; // Strong Specular
-    finalColor += vec3(0.5, 0.8, 1.0) * rim * 0.5; // Blue Rim
+    // --- Composition ---
     
-    // Subtle internal glow/thickness based on 'd' (d is negative inside)
-    float innerGlow = smoothstep(-0.8, 0.0, d);
-    finalColor += baseColor * innerGlow * 0.3;
+    // Map Pattern to visual features
+    // pattern 0..1 (Spots)
+    // Darken inside spots (Nuclei)
+    vec3 tissueColor = baseColor * (0.6 + 0.4 * (1.0 - pattern));
+    
+    // Veins (Edges of spots)
+    // glowing network
+    float veinMask = 1.0 - abs(pattern - 0.5) * 2.0; // Peak at 0.5
+    veinMask = pow(veinMask, 4.0);
+    
+    vec3 finalColor = tissueColor * diffuse;
+    
+    // Add glowing veins
+    finalColor += vec3(1.0, 0.9, 0.6) * veinMask * 0.3;
+    
+    // Membrane Glow at edge
+    float membrane = smoothstep(-0.15, 0.0, d);
+    finalColor += vec3(0.2, 0.8, 0.6) * membrane * 0.6; 
 
+    // Add Lights
+    finalColor += vec3(1.0) * spec * 0.4;
+    finalColor += vec3(0.5, 0.9, 1.0) * rim * 0.5;
+    
     gl_FragColor = vec4(finalColor, 1.0);
 }
 `;
