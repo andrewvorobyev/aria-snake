@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../constants';
 import { FruitVisuals, FruitType } from './FruitVisuals';
+import { ObstacleVisuals } from './ObstacleVisuals';
 
 const BACKGROUND_VERTEX_SHADER = `
 varying vec2 vUv;
@@ -122,6 +123,7 @@ interface Obstacle {
     z: number;
     mesh: THREE.Mesh;
     ttl: number; // Time To Live
+    mask?: number;
 }
 
 interface Fruit {
@@ -138,8 +140,7 @@ export class Grid {
     private obstacles: Obstacle[] = [];
     private fruits: Fruit[] = [];
 
-    private obstacleGeometry: THREE.BoxGeometry;
-    private obstacleMaterial: THREE.MeshStandardMaterial;
+
 
     private bgMaterial: THREE.ShaderMaterial; // Store to update uniforms
 
@@ -149,10 +150,6 @@ export class Grid {
     constructor(aspectRatio: number) {
         this.mesh = new THREE.Group();
 
-        this.obstacleGeometry = new THREE.BoxGeometry(CONFIG.GRID.CELL_SIZE * 0.9, 1, CONFIG.GRID.CELL_SIZE * 0.9);
-        this.obstacleMaterial = new THREE.MeshStandardMaterial({ color: CONFIG.COLORS.OBSTACLE });
-
-        // Initialize shader material
         this.bgMaterial = new THREE.ShaderMaterial({
             vertexShader: BACKGROUND_VERTEX_SHADER,
             fragmentShader: BACKGROUND_FRAGMENT_SHADER,
@@ -220,6 +217,13 @@ export class Grid {
         this.fruits.forEach(f => {
             if (f.mesh.material instanceof THREE.ShaderMaterial) {
                 f.mesh.material.uniforms.uTime.value += dt;
+            }
+        });
+
+        // Update Obstacle Animations
+        this.obstacles.forEach(o => {
+            if (o.mesh.material instanceof THREE.ShaderMaterial) {
+                o.mesh.material.uniforms.uTime.value += dt;
             }
         });
     }
@@ -293,8 +297,10 @@ export class Grid {
                 const ttl = Math.random() * 20 + 20;
 
                 for (const pt of pointsToSpawn) {
-                    const mesh = new THREE.Mesh(this.obstacleGeometry, this.obstacleMaterial);
-                    mesh.position.set(pt.x, 0.5, pt.z);
+                    const mesh = ObstacleVisuals.createObstacleMesh();
+                    mesh.position.set(pt.x, 0.1, pt.z);
+                    mesh.scale.set(CONFIG.GRID.CELL_SIZE, CONFIG.GRID.CELL_SIZE, 1.0);
+
                     mesh.castShadow = true;
                     mesh.receiveShadow = true;
                     this.mesh.add(mesh);
@@ -303,11 +309,33 @@ export class Grid {
                         x: pt.x,
                         z: pt.z,
                         mesh: mesh,
-                        ttl: ttl
+                        ttl: ttl,
+                        mask: 0
                     });
                     this.occupiedCells.add(`${Math.round(pt.x)},${Math.round(pt.z)}`);
                 }
+                this.updateObstacleVisuals();
                 return; // Made progress
+            }
+        }
+    }
+
+    private updateObstacleVisuals() {
+        for (const obs of this.obstacles) {
+            const x = Math.round(obs.x);
+            const z = Math.round(obs.z);
+            let mask = 0;
+
+            // Check Neighbors (North: z-1, East: x+1, South: z+1, West: x-1)
+            // Assumes Z decreases North
+            if (this.occupiedCells.has(`${x},${z - 1}`)) mask |= 1; // North
+            if (this.occupiedCells.has(`${x + 1},${z}`)) mask |= 2; // East
+            if (this.occupiedCells.has(`${x},${z + 1}`)) mask |= 4; // South
+            if (this.occupiedCells.has(`${x - 1},${z}`)) mask |= 8; // West
+
+            obs.mask = mask;
+            if (obs.mesh.material instanceof THREE.ShaderMaterial) {
+                obs.mesh.material.uniforms.uMask.value = mask;
             }
         }
     }
@@ -317,6 +345,7 @@ export class Grid {
         this.mesh.remove(obs.mesh);
         this.occupiedCells.delete(`${Math.round(obs.x)},${Math.round(obs.z)}`);
         this.obstacles.splice(index, 1);
+        this.updateObstacleVisuals();
     }
 
     private spawnFruit(snakePath: THREE.Vector3[]) {
