@@ -67,5 +67,14 @@ export const CONFIG = {
         MASTER_VOLUME: 1.0,
         MUSIC_VOLUME: 0.9,
         SFX_VOLUME: 0.5
+    },
+    PARTICLES: {
+        MAX_COUNT: 400,
+        BURST_COUNT: 80,
+        SIZE: { MIN: 15, MAX: 35 },
+        LIFE: { MIN: 0.5, MAX: 1.0 },
+        SPEED: { MIN: 12, MAX: 25 },
+        UP_SPEED: { MIN: 10, MAX: 20 },
+        GRAVITY: -35
     }
 };

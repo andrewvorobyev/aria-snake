@@ -6,6 +6,7 @@ import { Snake } from './Snake';
 import { Grid } from './Grid';
 import { Background } from './Background';
 import { Audio } from './Audio';
+import { ParticleSystem } from './Particles';
 
 export class Game {
     private renderer: Renderer;
@@ -14,6 +15,7 @@ export class Game {
     private grid: Grid;
     private background: Background;
     private audio: Audio;
+    private particles: ParticleSystem;
     private musicStarted: boolean = false;
     private lastTime: number = 0;
     private frameCount: number = 0;
@@ -38,6 +40,10 @@ export class Game {
 
         this.snake = new Snake(new THREE.Vector3(0, 0.5, 0));
         this.renderer.scene.add(this.snake.mesh);
+
+        // Particle system
+        this.particles = new ParticleSystem();
+        this.renderer.scene.add(this.particles.group);
 
         // Listen to resize to update grid
         window.addEventListener('game-resize', ((e: CustomEvent) => {
@@ -135,12 +141,14 @@ export class Game {
         this.grid.update(gridDt, this.snake.getPath());
         this.background.update(dt);
         this.snake.animate(dt);
+        this.particles.update(dt);
 
         // Fruit Collection
         const newHeadPos = this.snake.getHeadPosition();
         if (this.grid.handleFruitCollection(newHeadPos.x, newHeadPos.z, r)) {
             this.audio.playEatSound();
             this.snake.triggerEat();
+            this.particles.spawnBurst(newHeadPos.x, newHeadPos.z);
         }
 
         // Start background music on first input (user gesture required for AudioContext)
