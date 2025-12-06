@@ -95,13 +95,14 @@ void main() {
     if (alpha <= 0.01) discard;
 
     // Color Logic
-    // Center is dark version of color, edge is pure color
-    vec3 darkCore = uColor * 0.25; 
+    // Center is WHITISH version of color (Cell body / Nucleus feel)
+    vec3 paleCore = mix(uColor, vec3(1.0, 1.0, 1.0), 0.6); 
 
     // Mix Mask: Core vs Edge
-    float mixMask = smoothstep(-0.4, 0.1, d); 
+    float mixMask = smoothstep(-0.4, 0.2, d); 
     
-    vec3 col = mix(darkCore, uColor, mixMask);
+    // Invert mix: Pale center -> Pure Color edge
+    vec3 col = mix(paleCore, uColor, mixMask);
 
     // Dust texture
     float dust = snoise(p * 15.0);

@@ -154,12 +154,12 @@ export class FruitVisuals {
 
         switch (type) {
             case FruitType.PARTICLE_A:
-                color = new THREE.Color(0x22ff00);
+                color = new THREE.Color(0x44ccff); // Light Blue
                 spikeFreq = 4.0;
                 spikeAmp = 0.45;
                 break;
             case FruitType.PARTICLE_B:
-                color = new THREE.Color(0xff00cc);
+                color = new THREE.Color(0xffcc44); // Golden Yellow
                 spikeFreq = 7.0;
                 spikeAmp = 0.35;
                 break;
