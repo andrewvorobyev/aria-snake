@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import Matter from 'matter-js';
 import { CONFIG } from '../constants';
 import { FruitVisuals, FruitType } from './FruitVisuals';
 import { OrganismVisuals } from './OrganismVisuals';
@@ -98,7 +99,7 @@ void main() {
 
     // --- 4. Noise / Grain ---
     float grain = rand(uv * 2.0 + vec2(uTime * 1.5)); 
-    col += (grain - 0.5) * 0.08; 
+    col += (grain - 0.5) * 0.05; 
     
     float detail = snoise(uv * 20.0 - uTime * 0.1);
     col += detail * 0.02; 
@@ -118,19 +119,30 @@ export const CellState = {
     OBSTACLE: 3
 } as const;
 
+const TARGET_ORGANISM_COUNT = 6;
 
+// Interface for Organisms with Physics
+interface BlobNode {
+    pos: THREE.Vector3;
+    r: number;
+    parentIndex: number;
+    dist: number;
+    wigglePhase: number;
+}
 
 interface Organism {
-    segments: { x: number, z: number }[];
-    direction: { x: number, z: number };
-    visuals: OrganismVisuals;
-    moveTimer: number;
-    moveInterval: number;
     id: number;
+    headBody: Matter.Body; // The driving force
+    segmentBodies: Matter.Body[]; // Passive collision bodies for tail
+    nodes: BlobNode[]; // For visuals and soft body logic
+    angle: number;
+    speed: number;
+
+    visuals: OrganismVisuals;
     appearing: boolean;
     vanishing: boolean;
     scale: number;
-    color?: THREE.Color;
+    color: THREE.Color;
 }
 
 interface Fruit {
@@ -138,25 +150,43 @@ interface Fruit {
     z: number;
     mesh: THREE.Mesh;
     type: FruitType;
+    body: Matter.Body;
 }
 
 export class Grid {
     public mesh: THREE.Group;
-    private width: number = 100; // Will be set on resize
-    private depth: number = 100; // Will be set on resize
+    private width: number = 100;
+    private depth: number = 100;
 
     private organisms: Organism[] = [];
     private fruits: Fruit[] = [];
     private nextOrganismId = 0;
 
+    private bgMaterial: THREE.ShaderMaterial;
 
-    private bgMaterial: THREE.ShaderMaterial; // Store to update uniforms
+    // --- PHYSICS ---
+    private engine: Matter.Engine;
+    private world: Matter.World;
+    private wallBodies: Matter.Body[] = [];
+    private snakeBodies: Matter.Body[] = []; // Pool for snake path collision
 
+    // Collision Categories
+    private readonly CAT_SNAKE = 0x0001;
+    private readonly CAT_ORGANISM = 0x0002;
+    private readonly CAT_WALL = 0x0004;
+    private readonly CAT_FRUIT = 0x0008;
 
-    private occupiedCells: Set<string> = new Set();
+    // Debug
+    private debugGroup = new THREE.Group();
+    private showDebug: boolean = true;
 
     constructor(aspectRatio: number) {
         this.mesh = new THREE.Group();
+
+        // 1. Init Physics
+        this.engine = Matter.Engine.create();
+        this.world = this.engine.world;
+        this.world.gravity.y = 0; // Top-down
 
         this.bgMaterial = new THREE.ShaderMaterial({
             vertexShader: BACKGROUND_VERTEX_SHADER,
@@ -172,264 +202,495 @@ export class Grid {
 
     public resize(aspectRatio: number) {
         this.depth = CONFIG.GRID.FIXED_SIDE;
-        this.width = this.depth * aspectRatio; // Allow float width
+        this.width = this.depth * aspectRatio;
 
         // Rebuild Grid Visuals
         while (this.mesh.children.length > 0) {
             this.mesh.remove(this.mesh.children[0]);
         }
+
+        // Reset Logic
         this.organisms = [];
         this.nextOrganismId = 0;
         this.fruits = [];
-        this.occupiedCells.clear();
 
         // Background Plane
         const planeGeo = new THREE.PlaneGeometry(this.width, this.depth);
-        // Use the shader material
         const plane = new THREE.Mesh(planeGeo, this.bgMaterial);
         plane.rotation.x = Math.PI / 2;
         plane.receiveShadow = true;
         this.mesh.add(plane);
 
-        if (this.showDebug) {
-            this.createDebugMesh();
-        }
+        // Rebuild Physics Walls
+        Matter.World.clear(this.world, false); // Keep engine, clear bodies
+        this.snakeBodies = [];
+        this.wallBodies = [];
+
+        const wallThickness = 10;
+        const halfW = this.width / 2;
+        const halfD = this.depth / 2;
+        const offset = wallThickness / 2;
+
+        const options = {
+            isStatic: true,
+            collisionFilter: {
+                category: this.CAT_WALL
+            },
+            label: 'Wall Body'
+        };
+
+        // Top, Bottom, Left, Right
+        this.wallBodies.push(Matter.Bodies.rectangle(0, -halfD - offset, this.width, wallThickness, options));
+        this.wallBodies.push(Matter.Bodies.rectangle(0, halfD + offset, this.width, wallThickness, options));
+        this.wallBodies.push(Matter.Bodies.rectangle(-halfW - offset, 0, wallThickness, this.depth, options));
+        this.wallBodies.push(Matter.Bodies.rectangle(halfW + offset, 0, wallThickness, this.depth, options));
+
+        Matter.World.add(this.world, this.wallBodies);
+
+        // Debug
+        if (this.showDebug) this.createDebugMesh();
     }
 
+    private createDebugMesh() {
+        if (!this.showDebug) return;
+        this.mesh.add(this.debugGroup);
+        console.log(`[Grid] Debug Group added.`);
+    }
 
+    private updateDebug(snakePath: THREE.Vector3[]) {
+        if (!this.showDebug) return;
+
+        // Cleanup Geometries from previous frame to prevent memory leak
+        for (const child of this.debugGroup.children) {
+            if (child instanceof THREE.Line) {
+                child.geometry.dispose();
+            }
+        }
+        this.debugGroup.clear();
+
+        const bodies = Matter.Composite.allBodies(this.world);
+
+        bodies.forEach(body => {
+            const vertices = body.vertices;
+            const points: THREE.Vector3[] = [];
+
+            vertices.forEach(v => {
+                points.push(new THREE.Vector3(v.x, 0.1, v.y));
+            });
+            if (points.length > 0) points.push(points[0]);
+
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+
+            let material = this.debugMats.wall;
+            if (body.label === 'snake') material = this.debugMats.snake;
+            else if (body.label === 'org_head') material = this.debugMats.head;
+            else if (body.label === 'org_tail') material = this.debugMats.tail;
+            else if (body.label === 'fruit') material = this.debugMats.fruit;
+
+            const line = new THREE.Line(geometry, material);
+            this.debugGroup.add(line);
+        });
+
+        // Debug Rays
+        this.organisms.forEach(org => {
+            const start = org.headBody.position;
+            const dirX = Math.cos(org.angle);
+            const dirY = Math.sin(org.angle);
+
+            const points = [
+                new THREE.Vector3(start.x, 0.2, start.y),
+                new THREE.Vector3(start.x + dirX * 4.0, 0.2, start.y + dirY * 4.0)
+            ];
+            const geo = new THREE.BufferGeometry().setFromPoints(points);
+            this.debugGroup.add(new THREE.Line(geo, this.debugMats.ray));
+        });
+    }
+
+    private tempVec3 = new THREE.Vector3();
+
+    // Debug Materials (Cached to prevent leaks)
+    private debugMats = {
+        snake: new THREE.LineBasicMaterial({ color: 0x00ff00 }),
+        head: new THREE.LineBasicMaterial({ color: 0xff0000 }),
+        tail: new THREE.LineBasicMaterial({ color: 0xff00ff }),
+        fruit: new THREE.LineBasicMaterial({ color: 0xffff00 }),
+        wall: new THREE.LineBasicMaterial({ color: 0x888888 }),
+        ray: new THREE.LineBasicMaterial({ color: 0x00ffff })
+    };
 
     public update(dt: number, snakePath: THREE.Vector3[]) {
-        // Update shader time
         this.bgMaterial.uniforms.uTime.value += dt;
 
-        // 1. Manage Obstacles
-        // 1. Manage Organisms (Dynamic Enemies)
-        const targetCount = 6; // Max organisms
+        // --- 1. Physics Engine Step ---
+        Matter.Engine.update(this.engine, dt * 1000);
 
-        // Spawn new
-        if (this.organisms.length < targetCount) {
+        // --- 2. Update Snake Physics ---
+        this.updateSnakePhysics(snakePath);
+
+        // --- 3. Clean up Organisms ---
+        // (Removing old dispose logic for brevity, assuming minimal churn for now or will re-add if needed)
+        // Check spawn
+        if (this.organisms.length < TARGET_ORGANISM_COUNT) {
             this.spawnOrganism(snakePath);
         }
 
-        // Update Organisms
+        // --- 4. Update Organisms (Blob Logic) ---
         for (let i = this.organisms.length - 1; i >= 0; i--) {
             const org = this.organisms[i];
-
-            // Movement Logic
-            org.moveTimer += dt;
-            if (org.moveTimer > org.moveInterval) {
-                org.moveTimer = 0;
-
-                // Determine Move
-                // 30% chance to change direction even if not blocked (Chaotic)
-                if (Math.random() < 0.3) {
-                    this.pickNewDirection(org);
-                }
-
-                let head = org.segments[0];
-                let nextX = head.x + org.direction.x;
-                let nextZ = head.z + org.direction.z;
-
-                // Validate Move
-                if (!this.isValidMove(nextX, nextZ, snakePath)) {
-                    // Try to pick new direction
-                    this.pickNewDirection(org);
-                    // Try again
-                    nextX = head.x + org.direction.x;
-                    nextZ = head.z + org.direction.z;
-                }
-
-                if (this.isValidMove(nextX, nextZ, snakePath)) {
-                    // Move
-                    // Add Head
-                    org.segments.unshift({ x: nextX, z: nextZ });
-                    this.occupiedCells.add(`${nextX},${nextZ}`);
-
-                    // Remove Tail (Max Length 5)
-                    if (org.segments.length > 5) {
-                        const tail = org.segments.pop()!;
-                        this.occupiedCells.delete(`${tail.x},${tail.z}`);
-                    }
-                }
+            if (!org.nodes || org.nodes.length === 0) {
+                // Remove malformed organism
+                // Also remove physics body if it exists?
+                if (org.headBody) Matter.World.remove(this.world, org.headBody);
+                this.organisms.splice(i, 1);
+                continue;
             }
 
-            // Update Visuals
-            org.visuals.update(org.segments, dt);
+            // Steering (Change Logic to Raycast)
+            this.steerOrganism(org);
+
+            // Sync Head Node (Node 0) with Head Body
+            const headPos = org.headBody.position;
+            org.nodes[0].pos.set(headPos.x, 0, headPos.y);
+
+            // Update Body Nodes (Soft Body / Chain Logic)
+            for (let i = 1; i < org.nodes.length; i++) {
+                const node = org.nodes[i];
+                const parent = org.nodes[node.parentIndex];
+
+                // Ideal Target Position relative to parent
+                // We want to drag it.
+                // Vector from Node to Parent
+                this.tempVec3.subVectors(parent.pos, node.pos);
+                const currentDist = this.tempVec3.length();
+
+                // Spring / Constraint
+                if (currentDist > node.dist) {
+                    // Pull towards parent
+                    const k = 0.15; // Stiffness
+                    const pull = (currentDist - node.dist) * k;
+                    this.tempVec3.normalize().multiplyScalar(pull);
+                    node.pos.add(this.tempVec3);
+                }
+
+                // Wiggle (Bacteria-like movement)
+                const wiggleX = Math.sin(this.bgMaterial.uniforms.uTime.value * 4.0 + node.wigglePhase) * 0.02;
+                const wiggleZ = Math.cos(this.bgMaterial.uniforms.uTime.value * 3.0 + node.wigglePhase) * 0.02;
+                node.pos.x += wiggleX;
+                node.pos.z += wiggleZ;
+
+                // Sync Physics Body (Collider)
+                Matter.Body.setPosition(org.segmentBodies[i], { x: node.pos.x, y: node.pos.z });
+            }
+
+            // Pass Node Data to Visuals
+            // Maps nodes to flat array for Shader
+            const renderNodes = org.nodes.map(n => ({ x: n.pos.x, z: n.pos.z, r: n.r }));
+            org.visuals.update(renderNodes, dt);
+            if (org.color) org.visuals.setColor(org.color);
         }
 
-        // 2. Manage Fruit
+        // --- 5. Manage Fruit ---
         if (this.fruits.length < CONFIG.FRUIT.TARGET_COUNT) {
-            this.spawnFruit(snakePath);
+            this.spawnFruit();
         }
 
-        // Update Fruit Animations (Shader Time + Wiggle)
+        // Fruit Animations
         this.fruits.forEach(f => {
             if (f.mesh.material instanceof THREE.ShaderMaterial) {
                 const t = f.mesh.material.uniforms.uTime.value += dt;
-                // Bacteria wobble
                 const seed = f.x * 12.34 + f.z * 56.78;
                 f.mesh.rotation.y = Math.sin(t * 2.0 + seed) * 0.15;
             }
         });
 
+        // --- 6. Update Debug Renderer ---
         this.updateDebug(snakePath);
     }
 
-    private spawnOrganism(snakePath: THREE.Vector3[]) {
-        // Enforce integer grid coordinates
-        // Width/Depth might be floats due to Aspect Ratio
-        const gridW = Math.floor(this.width);
-        const gridD = Math.floor(this.depth);
+    private updateSnakePhysics(snakePath: THREE.Vector3[]) {
+        // Pool Management for Snake Bodies
+        // We represent the snake path as a series of circles
 
-        for (let attempt = 0; attempt < 50; attempt++) {
-            // Random Integer Coordinate within [-W/2 + 2, W/2 - 2]
-            const kx = Math.floor(Math.random() * (gridW - 4)) - Math.floor(gridW / 2) + 2;
-            const kz = Math.floor(Math.random() * (gridD - 4)) - Math.floor(gridD / 2) + 2;
+        const r = 0.5; // Snake Radius
+        const separation = 0.8; // Distance between physics bodies (optimization)
 
-            if (this.occupiedCells.has(`${kx},${kz}`)) continue;
-            // Snake Distance Check
-            if (snakePath.length > 0) {
-                const dx = kx - snakePath[0].x;
-                const dz = kz - snakePath[0].z;
-                if (Math.sqrt(dx * dx + dz * dz) < 8) continue; // Reduced from 15 to 8
+        let bodyIdx = 0;
+
+        if (snakePath.length > 0) {
+            let lastPos = snakePath[0];
+
+            // Add/Update Head Body
+            this.ensureSnakeBody(bodyIdx, lastPos.x, lastPos.z, r);
+            bodyIdx++;
+
+            // Walk path
+            for (let i = 1; i < snakePath.length; i++) {
+                const p = snakePath[i];
+                if (p.distanceTo(lastPos) >= separation) {
+                    this.ensureSnakeBody(bodyIdx, p.x, p.z, r);
+                    bodyIdx++;
+                    lastPos = p;
+                }
             }
-            if (this.occupiedCells.has(`${kx},${kz}`)) continue;
+        }
 
-            const tempSegments = [{ x: kx, z: kz }];
+        // Hide/Remove unused bodies
+        for (let i = bodyIdx; i < this.snakeBodies.length; i++) {
+            Matter.Body.setPosition(this.snakeBodies[i], { x: 9999, y: 9999 }); // Move away
+            // Or remove from world? Moving away is cheaper than add/remove churn
+        }
+    }
 
-            // Commit immediately (Start at length 1 and grow)
-            this.occupiedCells.add(`${kx},${kz}`);
+    private ensureSnakeBody(index: number, x: number, z: number, r: number) {
+        if (index >= this.snakeBodies.length) {
+            // Create new
+            const body = Matter.Bodies.circle(x, z, r, {
+                isStatic: true, // Snake acts as static obstacle for organisms (they steer around it)
+                // But wait, organisms push against it? 
+                // User said "snake can go through them". 
+                // If snake is static, organisms will bounce off it.
+                collisionFilter: {
+                    category: this.CAT_SNAKE,
+                },
+                label: 'snake'
+            });
+            Matter.World.add(this.world, body);
+            this.snakeBodies.push(body);
+        } else {
+            // Update existing
+            Matter.Body.setPosition(this.snakeBodies[index], { x, y: z });
+        }
+    }
+
+    private steerOrganism(org: Organism) {
+        // Raycast parameters
+        const lookAhead = 4.0;
+        const rayWidth = 0.5; // Narrower ray to avoid clipping self-edges
+
+        // Filter Obstacles (Exclude Self)
+        const allBodies = Matter.Composite.allBodies(this.world);
+        const obstacles = allBodies.filter(b =>
+            b !== org.headBody &&
+            !org.segmentBodies.includes(b) &&
+            b.label !== 'fruit'
+        );
+
+        const rayStart = org.headBody.position;
+        const rayEnd = {
+            x: rayStart.x + Math.cos(org.angle) * lookAhead,
+            y: rayStart.y + Math.sin(org.angle) * lookAhead
+        };
+
+        const collisions = Matter.Query.ray(obstacles, rayStart, rayEnd, rayWidth);
+        const hit = collisions.length > 0;
+
+        if (hit) {
+            // Blocked, turn
+            org.angle += (Math.random() < 0.5 ? 1 : -1) * (Math.PI / 2);
+        } else {
+            // Clear, Wander
+            org.angle += (Math.random() - 0.5) * 0.1; // Reduced wander jitter
+        }
+
+        // Apply Velocity
+        // Velocity in Matter.js is per-update. 
+        // We set it directly to control movement precisely.
+        const vx = Math.cos(org.angle) * org.speed;
+        const vz = Math.sin(org.angle) * org.speed;
+
+        Matter.Body.setVelocity(org.headBody, { x: vx, y: vz });
+    }
+
+    private spawnOrganism(snakePath: THREE.Vector3[]) {
+        for (let attempt = 0; attempt < 10; attempt++) {
+            const rx = (Math.random() - 0.5) * (this.width - 6);
+            const rz = (Math.random() - 0.5) * (this.depth - 6);
+
+            // Check clearance 
+            if (snakePath.length > 0 && snakePath[0].distanceTo(new THREE.Vector3(rx, 0, rz)) < 8) continue;
+
+            // 1. Create Head Body (Driver)
+            const headBody = Matter.Bodies.circle(rx, rz, 0.6, {
+                frictionAir: 0,
+                friction: 0,
+                restitution: 0,
+                inertia: Infinity,
+                collisionFilter: { category: this.CAT_ORGANISM },
+                label: 'org_head'
+            });
+            Matter.World.add(this.world, headBody);
+
+            // 2. Generate Blob Nodes
+            const nodes: BlobNode[] = [];
+            const segmentBodies: Matter.Body[] = [];
+
+            // Head Node (Index 0)
+            const headNode: BlobNode = {
+                pos: new THREE.Vector3(rx, 0, rz),
+                r: 0.6 + Math.random() * 0.4,
+                parentIndex: -1,
+                dist: 0,
+                wigglePhase: Math.random() * 10
+            };
+            nodes.push(headNode);
+            segmentBodies.push(headBody);
+
+            // 3. Child Nodes (Cluster around head)
+            const count = 5 + Math.floor(Math.random() * 4); // 5-9 blobs
+
+            for (let i = 0; i < count; i++) {
+                // Attach to Head (0) for star shape, or mix?
+                // For a proper blob, cluster them around the center.
+                // We use constraints to keep them together.
+
+                const parentIdx = 0;
+                const parent = nodes[parentIdx];
+
+                const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5);
+                const dist = 0.6 + Math.random() * 0.6; // Close cluster
+
+                const nx = parent.pos.x + Math.cos(angle) * dist;
+                const nz = parent.pos.z + Math.sin(angle) * dist;
+                const r = 0.5 + Math.random() * 0.4;
+
+                nodes.push({
+                    pos: new THREE.Vector3(nx, 0, nz),
+                    r: r,
+                    parentIndex: parentIdx,
+                    dist: dist,
+                    wigglePhase: Math.random() * 10
+                });
+
+                // Create Sensor Body for this blob part
+                const body = Matter.Bodies.circle(nx, nz, r * 0.7, {
+                    isSensor: true,
+                    isStatic: true,
+                    collisionFilter: {
+                        category: this.CAT_ORGANISM,
+                        mask: this.CAT_SNAKE | this.CAT_WALL
+                    },
+                    label: 'org_tail'
+                });
+                Matter.World.add(this.world, body);
+                segmentBodies.push(body);
+            }
 
             const visuals = new OrganismVisuals();
-            visuals.update(tempSegments, 0);
+            // Initial Visual Update
+            const renderData = nodes.map(n => ({ x: n.pos.x, z: n.pos.z, r: n.r }));
+            visuals.update(renderData, 0);
             this.mesh.add(visuals.mesh);
 
             this.organisms.push({
                 id: this.nextOrganismId++,
-                segments: tempSegments,
-                direction: { x: 0, z: 0 },
-                moveTimer: 0,
-                moveInterval: 0.15 + Math.random() * 0.2,
+                headBody: headBody,
+                segmentBodies: segmentBodies,
+                nodes: nodes,
+                angle: Math.random() * Math.PI * 2,
+                speed: 0.15 + Math.random() * 0.15,
                 visuals: visuals,
                 appearing: true,
                 vanishing: false,
-                scale: 0.0,
+                scale: 1.0,
+                color: new THREE.Color().setHSL(Math.random(), 0.6, 0.4)
             });
-
-            this.pickNewDirection(this.organisms[this.organisms.length - 1]);
-            // console.log(`[Grid] Spawned Organism ID ${this.organisms[this.organisms.length-1].id} at ${kx},${kz}`);
             return;
         }
-        console.warn("[Grid] Failed to spawn organism of sufficient length after 50 attempts.");
     }
 
-    private pickNewDirection(org: Organism) {
-        const dirs = [
-            { x: 1, z: 0 }, { x: -1, z: 0 },
-            { x: 0, z: 1 }, { x: 0, z: -1 }
-        ];
-        // Bias towards current direction (Inertia)
-        if (Math.random() < 0.7 && (org.direction.x !== 0 || org.direction.z !== 0)) {
-            // Keep going
-            return;
-        }
-        org.direction = dirs[Math.floor(Math.random() * dirs.length)];
-    }
-
-    private isValidMove(x: number, z: number, snakePath: THREE.Vector3[]): boolean {
-        // Bounds
-        const halfW = this.width / 2;
-        const halfD = this.depth / 2;
-        // Padding from wall
-        if (x <= -halfW + 1 || x >= halfW - 1 || z <= -halfD + 1 || z >= halfD - 1) return false;
-
-        // Occupied
-        if (this.occupiedCells.has(`${x},${z}`)) return false;
-
-        // Snake Path Check (Collision)
-        for (const sp of snakePath) {
-            const dx = Math.abs(sp.x - x);
-            const dz = Math.abs(sp.z - z);
-            if (dx < 0.8 && dz < 0.8) return false;
-        }
-
-        // Fruits
-        for (const f of this.fruits) {
-            if (Math.round(f.x) === x && Math.round(f.z) === z) return false;
-        }
-
-        return true;
-    }
-
-    private spawnFruit(snakePath: THREE.Vector3[]) {
+    private spawnFruit() {
         const sizeCells = CONFIG.FRUIT.SIZE_CELLS;
-        // Use clearance based on size
-        const pos = this.getRandomEmptyRegion(snakePath, 2 + sizeCells / 2, sizeCells);
+        // Random spot
+        for (let i = 0; i < 10; i++) {
+            const rx = (Math.random() - 0.5) * (this.width - 2);
+            const rz = (Math.random() - 0.5) * (this.depth - 2);
 
-        if (pos) {
-            // Random Fruit Type
+            // Create Sensor Body
+            const r = 0.5;
+            const bodies = Matter.Query.region(Matter.Composite.allBodies(this.world), {
+                min: { x: rx - r, y: rz - r },
+                max: { x: rx + r, y: rz + r }
+            });
+            if (bodies.length > 0) continue;
+
             const type = Math.floor(Math.random() * 4) as FruitType;
             const mesh = FruitVisuals.createFruitMesh(type);
-
-            mesh.position.set(pos.x, 0, pos.z);
-
-            // Scale to match config size
+            mesh.position.set(rx, 0, rz);
             const scale = sizeCells * CONFIG.GRID.CELL_SIZE * 0.8;
             mesh.scale.multiplyScalar(scale);
-
             this.mesh.add(mesh);
-            this.fruits.push({ x: pos.x, z: pos.z, mesh, type });
+
+            const body = Matter.Bodies.circle(rx, rz, 0.5 * scale, {
+                isSensor: true, // Fruits are sensors
+                isStatic: true,
+                collisionFilter: { category: this.CAT_FRUIT },
+                label: 'fruit'
+            });
+            Matter.World.add(this.world, body);
+
+            this.fruits.push({ x: rx, z: rz, mesh, type, body });
+            return;
         }
     }
 
+    // --- Public API for Snake Movement (Raycast) ---
     public isPositionBlocked(x: number, z: number, radius: number): boolean {
-        // Bounds check (World is centered at 0,0)
+        // Create a temporary body check? 
+        // Or just Query.region or Query.collides
+        // User asked for Raycast? 
+        // But block check is usually volumetric.
+        // "Raycast for determining if movement is possible in a given direction"
+        // Game.ts calls isPositionBlocked(x, z). 
+        // This checks if the target circle is blocked.
+
+        const bodies = Matter.Composite.allBodies(this.world);
+
+        // Simple circle overlap check against all static/relevant bodies
+        // Matter does not expose a direct 'CheckCircle' easily without creating a body.
+
+        // Visualization of this check? (Red circle?)
+
+        // Bounds check
         const halfW = this.width / 2;
         const halfD = this.depth / 2;
+        if (x < -halfW + radius || x > halfW - radius || z < -halfD + radius || z > halfD - radius) return true;
 
-        if (x < -halfW + radius || x > halfW - radius || z < -halfD + radius || z > halfD - radius) {
-            return true;
-        }
+        // Check Bodies
+        for (const b of bodies) {
+            if (b.label === 'snake') continue; // Don't collide with self (assuming this is for Snake Head)
+            if (b.label === 'fruit') continue; // Fruits don't block
 
-        // Check occupied cells (Organisms)
-        // Widen search to ensure fast moving snake doesn't skip (Paranoid padding)
-        const padding = 1.0;
-        const minIX = Math.floor(x - radius - padding);
-        const maxIX = Math.ceil(x + radius + padding);
-        const minIZ = Math.floor(z - radius - padding);
-        const maxIZ = Math.ceil(z + radius + padding);
-
-        for (let ix = minIX; ix <= maxIX; ix++) {
-            for (let iz = minIZ; iz <= maxIZ; iz++) {
-                if (this.occupiedCells.has(`${ix},${iz}`)) {
-                    // Box-Circle collision
-                    const cellR = 0.45;
-                    const closestX = Math.max(ix - cellR, Math.min(x, ix + cellR));
-                    const closestZ = Math.max(iz - cellR, Math.min(z, iz + cellR));
-
-                    const dx = x - closestX;
-                    const dz = z - closestZ;
-
-                    if ((dx * dx + dz * dz) < (radius * radius)) {
-                        return true;
-                    }
-                }
+            // Check Circle vs Body (Polygon/Circle)
+            // Matter.SAT?
+            // Simple bounds or distance check for circles is fast.
+            if (b.circleRadius) {
+                const dx = x - b.position.x;
+                const dy = z - b.position.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < (radius + b.circleRadius)) return true;
+            } else {
+                // Rectangle (Wall)
+                // AABB?
+                if (Matter.Bounds.overlaps(b.bounds, {
+                    min: { x: x - radius, y: z - radius },
+                    max: { x: x + radius, y: z + radius }
+                })) return true;
             }
         }
+
         return false;
     }
 
     public handleFruitCollection(x: number, z: number, radius: number): boolean {
-        const fruitRadius = (CONFIG.GRID.CELL_SIZE * CONFIG.FRUIT.SIZE_CELLS) * 0.4;
-
+        // Check fruits
         for (let i = 0; i < this.fruits.length; i++) {
             const f = this.fruits[i];
-            // Distance check 2D
             const dx = x - f.x;
             const dz = z - f.z;
-            if (dx * dx + dz * dz < (radius + fruitRadius) ** 2) {
-                // Collected!
+            if (dx * dx + dz * dz < (radius + 0.5) ** 2) {
+                // Collected
                 this.mesh.remove(f.mesh);
+                Matter.World.remove(this.world, f.body);
                 this.fruits.splice(i, 1);
                 return true;
             }
@@ -437,182 +698,8 @@ export class Grid {
         return false;
     }
 
-    // --- DEBUG RENDERING ---
-    private debugMesh: THREE.InstancedMesh | null = null;
-    private showDebug: boolean = false;
-    private dummy = new THREE.Object3D();
-    private _colEmpty = new THREE.Color(0.2, 0.2, 0.2);
-    private _colSnake = new THREE.Color(0.0, 1.0, 0.0);
-    private _colFruit = new THREE.Color(1.0, 1.0, 0.0);
-    private _colObs = new THREE.Color(1.0, 0.0, 1.0);
-
-    private createDebugMesh() {
-        if (this.debugMesh) {
-            this.mesh.remove(this.debugMesh);
-            this.debugMesh.dispose();
-        }
-
-        const startX = Math.ceil(-this.width / 2);
-        const endX = Math.floor(this.width / 2);
-        const startZ = Math.ceil(-this.depth / 2);
-        const endZ = Math.floor(this.depth / 2);
-
-        const cols = (endX - startX) + 1;
-        const rows = (endZ - startZ) + 1;
-        const count = cols * rows;
-
-        console.log(`[Grid] Create Debug Mesh: ${cols}x${rows} = ${count} instances.`);
-
-        // Small squares
-        const geometry = new THREE.PlaneGeometry(0.8, 0.8);
-        geometry.rotateX(-Math.PI / 2);
-
-        const material = new THREE.MeshBasicMaterial({
-            color: 0xffffff,
-            transparent: true,
-            opacity: 0.3,
-            depthTest: false // Render on top
-        });
-
-        this.debugMesh = new THREE.InstancedMesh(geometry, material, count);
-        this.debugMesh.renderOrder = 999;
-        this.debugMesh.position.y = 0.5; // Float above everything
-        this.mesh.add(this.debugMesh);
-        console.log(`[Grid] Debug Mesh added to scene.`);
-    }
-
-    private updateDebug(snakePath: THREE.Vector3[]) {
-        if (!this.showDebug || !this.debugMesh) return;
-
-        // console.log(`[Grid] Updating Debug... SnakeLen: ${snakePath.length}`); // Verbose
-
-        const startX = Math.ceil(-this.width / 2);
-        const endX = Math.floor(this.width / 2);
-        const startZ = Math.ceil(-this.depth / 2);
-        const endZ = Math.floor(this.depth / 2);
-
-        let i = 0;
-        let obsCount = 0;
-
-        for (let z = startZ; z <= endZ; z++) {
-            for (let x = startX; x <= endX; x++) {
-                this.dummy.position.set(x, 0, z);
-                this.dummy.updateMatrix();
-                this.debugMesh.setMatrixAt(i, this.dummy.matrix);
-
-                // Determine Color
-                let color = this._colEmpty;
-
-                // 1. Obstacle?
-                // Normalize key to ensure match (paranoia)
-                // Keys are "${x},${z}"
-                // If x is -0, it might be "0" or "-0"? Math.ceil/floor usually gives 0.
-                // But let's check.
-                if (this.occupiedCells.has(`${x},${z}`)) {
-                    color = this._colObs;
-                    obsCount++; // Count found
-                }
-
-                // 2. Fruit?
-                for (const f of this.fruits) {
-                    if (Math.round(f.x) === x && Math.round(f.z) === z) {
-                        color = this._colFruit;
-                        break;
-                    }
-                }
-
-                // 3. Snake? (Override others)
-                // Check distance to snake path segments
-                for (let k = 0; k < snakePath.length; k++) {
-                    const sp = snakePath[k];
-                    // Simple discrete check
-                    if (Math.round(sp.x) === x && Math.round(sp.z) === z) {
-                        color = this._colSnake;
-                        break;
-                    }
-                }
-
-                this.debugMesh.setColorAt(i, color);
-                i++;
-            }
-        }
-
-        // Debug Log occasionally
-        if (Math.random() < 0.01) { // 1% of frames
-            console.log(`[Grid] Debug Scan: Found ${obsCount} occupied cells.`);
-            console.log(`[Grid] Organisms: ${this.organisms.length}. Occupied Set Size: ${this.occupiedCells.size}`);
-            if (this.occupiedCells.size > 0 && obsCount === 0) {
-                // Key mismatch?
-                const firstKey = this.occupiedCells.values().next().value;
-                console.warn(`[Grid] MISMATCH! Set has keys (e.g. "${firstKey}") but grid loop found none. Loop range: X[${startX}, ${endX}] Z[${startZ}, ${endZ}]`);
-            }
-        }
-
-        this.debugMesh.instanceMatrix.needsUpdate = true;
-        if (this.debugMesh.instanceColor) this.debugMesh.instanceColor.needsUpdate = true;
-    }
-
-
     private getRandomEmptyRegion(snakePath: THREE.Vector3[], bboxRadius: number, regionSizeCells: number): { x: number, z: number } | null {
-        // Try N times to find a spot
-        for (let i = 0; i < 30; i++) {
-            const halfW = this.width / 2;
-            const halfD = this.depth / 2;
-
-            const maxX = Math.floor(halfW - 0.5 - (regionSizeCells - 1) / 2);
-            const maxZ = Math.floor(halfD - 0.5 - (regionSizeCells - 1) / 2);
-
-            // Random center
-            const kx = Math.floor(Math.random() * (maxX * 2 + 1)) - maxX;
-            const kz = Math.floor(Math.random() * (maxZ * 2 + 1)) - maxZ;
-
-            const cx = kx;
-            const cz = kz;
-
-            // Check distance from snake BODY (Whole Path)
-            let tooClose = false;
-            // Iterate path with stride to performance
-            for (let j = 0; j < snakePath.length; j += 4) {
-                const p = snakePath[j];
-                const d = Math.sqrt((cx - p.x) ** 2 + (cz - p.z) ** 2);
-                if (d < bboxRadius) {
-                    tooClose = true;
-                    break;
-                }
-            }
-            if (tooClose) continue;
-
-            // Check occupation for entire region
-            // We check if any cell in the 3x3 area is occupied
-            // Region extends from cx - 1 to cx + 1 (if size 3)
-            let occupied = false;
-            const halfRegion = Math.floor(regionSizeCells / 2);
-
-            for (let rx = -halfRegion; rx <= halfRegion; rx++) {
-                for (let rz = -halfRegion; rz <= halfRegion; rz++) {
-                    const checkX = cx + rx;
-                    const checkZ = cz + rz;
-                    const key = `${checkX},${checkZ}`;
-                    if (this.occupiedCells.has(key)) {
-                        occupied = true;
-                        break;
-                    }
-                }
-                if (occupied) break;
-            }
-            if (occupied) continue;
-
-            // Check existing fruits (center to center distance)
-            // Overlap if distance < (MySize + TheirSize) / 2
-            const fruitSize = CONFIG.FRUIT.SIZE_CELLS;
-            const minDistance = (regionSizeCells + fruitSize) / 2;
-
-            if (this.fruits.some(f => Math.abs(f.x - cx) < minDistance && Math.abs(f.z - cz) < minDistance)) continue;
-
-            return { x: cx, z: cz };
-        }
+        // Deprecated but kept to satisfy structure if needed, or can be removed.
         return null;
     }
-
-
 }
