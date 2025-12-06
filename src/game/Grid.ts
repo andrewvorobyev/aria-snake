@@ -24,6 +24,7 @@ interface Organism {
     nodes: BlobNode[]; // For visuals and soft body logic
     angle: number;
     speed: number;
+    scaredTimer: number; // Time remaining in scared state
 
     visuals: OrganismVisuals;
     appearing: boolean;
@@ -234,7 +235,13 @@ export class Grid {
             }
 
             // Steering (Change Logic to Raycast)
-            this.steerOrganism(org);
+            const snakeHead = snakePath.length > 0 ? snakePath[0] : null;
+            this.steerOrganism(org, snakeHead);
+
+            // Decrement scared timer
+            if (org.scaredTimer > 0) {
+                org.scaredTimer -= dt;
+            }
 
             // Leader Change Logic
             org.leaderTimer -= dt;
@@ -383,7 +390,67 @@ export class Grid {
         }
     }
 
-    private steerOrganism(org: Organism) {
+    /**
+     * Scare organisms near a position - makes them flee
+     */
+    public scareOrganisms(x: number, z: number, radius: number = 8.0) {
+        for (const org of this.organisms) {
+            const pos = org.headBody.position;
+            const dx = pos.x - x;
+            const dz = pos.y - z; // Matter.js y = world z
+            const distSq = dx * dx + dz * dz;
+
+            if (distSq < radius * radius) {
+                // Calculate flee angle (away from scare point)
+                const fleeAngle = Math.atan2(dz, dx);
+                org.angle = fleeAngle;
+
+                // Set scared timer - organism will move fast for this duration
+                org.scaredTimer = 1.0; // 1 second of being scared
+
+                // Boost speed temporarily by setting high velocity
+                const fleeSpeed = org.speed * 4.0;
+                const vx = Math.cos(org.angle) * fleeSpeed;
+                const vz = Math.sin(org.angle) * fleeSpeed;
+                Matter.Body.setVelocity(org.headBody, { x: vx, y: vz });
+            }
+        }
+    }
+
+    private steerOrganism(org: Organism, snakeHead: THREE.Vector3 | null) {
+        const rayStart = org.headBody.position;
+
+        // Snake head avoidance - if snake is nearby, flee!
+        const avoidRadius = 4.0; // Distance at which organisms start avoiding snake
+        const fleeRadius = 2.0;  // Distance at which organisms strongly flee
+
+        if (snakeHead) {
+            const dx = rayStart.x - snakeHead.x;
+            const dz = rayStart.y - snakeHead.z; // Matter.js y = world z
+            const distSq = dx * dx + dz * dz;
+
+            if (distSq < avoidRadius * avoidRadius) {
+                // Calculate flee angle (away from snake)
+                const fleeAngle = Math.atan2(dz, dx);
+                const dist = Math.sqrt(distSq);
+
+                if (dist < fleeRadius) {
+                    // Strong flee - directly away from snake
+                    org.angle = fleeAngle;
+                    // Move faster when fleeing
+                    const fleeSpeed = org.speed * 2.5;
+                    const vx = Math.cos(org.angle) * fleeSpeed;
+                    const vz = Math.sin(org.angle) * fleeSpeed;
+                    Matter.Body.setVelocity(org.headBody, { x: vx, y: vz });
+                    return; // Skip normal steering
+                } else {
+                    // Moderate avoidance - blend flee angle with current direction
+                    const blendFactor = 1.0 - (dist - fleeRadius) / (avoidRadius - fleeRadius);
+                    org.angle = org.angle + (fleeAngle - org.angle) * blendFactor * 0.3;
+                }
+            }
+        }
+
         // Raycast parameters
         const lookAhead = 4.0;
         const rayWidth = 0.5; // Narrower ray to avoid clipping self-edges
@@ -395,7 +462,6 @@ export class Grid {
             !org.segmentBodies.includes(b)
         );
 
-        const rayStart = org.headBody.position;
         const rayEnd = {
             x: rayStart.x + Math.cos(org.angle) * lookAhead,
             y: rayStart.y + Math.sin(org.angle) * lookAhead
@@ -415,8 +481,10 @@ export class Grid {
         // Apply Velocity
         // Velocity in Matter.js is per-update. 
         // We set it directly to control movement precisely.
-        const vx = Math.cos(org.angle) * org.speed;
-        const vz = Math.sin(org.angle) * org.speed;
+        // Use higher speed if scared
+        const speedMultiplier = org.scaredTimer > 0 ? 4.0 : 1.0;
+        const vx = Math.cos(org.angle) * org.speed * speedMultiplier;
+        const vz = Math.sin(org.angle) * org.speed * speedMultiplier;
 
         Matter.Body.setVelocity(org.headBody, { x: vx, y: vz });
     }
@@ -532,6 +600,7 @@ export class Grid {
                 nodes: nodes,
                 angle: Math.random() * Math.PI * 2,
                 speed: speed,
+                scaredTimer: 0,
                 visuals: visuals,
                 appearing: true,
                 vanishing: false,

@@ -156,6 +156,7 @@ export class Game {
         if (buttonEffect) {
             this.audio.playButtonSound(buttonEffect);
             this.particles.spawnButtonEffect(newHeadPos.x, newHeadPos.z, buttonEffect);
+            this.grid.scareOrganisms(newHeadPos.x, newHeadPos.z);
         }
 
         // Start background music on first input (user gesture required for AudioContext)

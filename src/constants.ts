@@ -41,6 +41,11 @@ export const CONFIG = {
             WANDER_SPEED: 0.0075, // Lower = Slower
             PUPIL_SPEED: 0.15,
             BLINK_INTERVAL: { MIN: 2.0, MAX: 8.0 }
+        },
+        SCARE: {
+            RADIUS: 5.0,          // How far the scare effect reaches
+            DURATION: 1.0,        // How long organisms stay scared (seconds)
+            SPEED_MULTIPLIER: 4.0 // How much faster they move when scared
         }
     },
     FRUIT: {
