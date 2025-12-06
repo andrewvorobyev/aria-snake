@@ -26,8 +26,9 @@ export const CONFIG = {
         COUNT: 10,
         BLOB_COUNT: { MIN: 2, MAX: 7 },
         RADIUS: { MIN: 0.4, MAX: 0.9 },
-        SPACING: { MIN: 0.5, MAX: 1.2 },
+        SPACING: { MIN: 1.0, MAX: 2.2 },
         SPEED: { MIN: 0.03, MAX: 0.05 },
+        LEADER_CHANGE_INTERVAL: { MIN: 2.0, MAX: 6.0 },
     },
     FRUIT: {
         SIZE_CELLS: 3,

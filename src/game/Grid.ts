@@ -142,6 +142,7 @@ interface Organism {
     appearing: boolean;
     vanishing: boolean;
     scale: number;
+    leaderTimer: number;
     color: THREE.Color;
 }
 
@@ -350,6 +351,36 @@ export class Grid {
 
             // Steering (Change Logic to Raycast)
             this.steerOrganism(org);
+
+            // Leader Change Logic
+            org.leaderTimer -= dt;
+            if (org.leaderTimer <= 0 && org.nodes.length > 1) {
+                // Select new leader from children
+                const newLeaderIdx = 1 + Math.floor(Math.random() * (org.nodes.length - 1));
+
+                // Swap Visual/Data (Node 0 is always the 'Driver')
+                const oldLeaderNode = org.nodes[0];
+                const newLeaderNode = org.nodes[newLeaderIdx];
+
+                // Swap Pos
+                const tempPos = oldLeaderNode.pos.clone();
+                oldLeaderNode.pos.copy(newLeaderNode.pos);
+                newLeaderNode.pos.copy(tempPos);
+
+                // Swap Radius
+                const tempR = oldLeaderNode.r;
+                oldLeaderNode.r = newLeaderNode.r;
+                newLeaderNode.r = tempR;
+
+                // Sync Physics Bodies to new positions
+                Matter.Body.setPosition(org.headBody, { x: oldLeaderNode.pos.x, y: oldLeaderNode.pos.z });
+                Matter.Body.setPosition(org.segmentBodies[newLeaderIdx], { x: newLeaderNode.pos.x, y: newLeaderNode.pos.z });
+
+                // Reset Timer
+                const minT = CONFIG.ORGANISMS.LEADER_CHANGE_INTERVAL.MIN;
+                const maxT = CONFIG.ORGANISMS.LEADER_CHANGE_INTERVAL.MAX;
+                org.leaderTimer = minT + Math.random() * (maxT - minT);
+            }
 
             // Sync Head Node (Node 0) with Head Body
             const headPos = org.headBody.position;
@@ -583,6 +614,8 @@ export class Grid {
             this.mesh.add(visuals.mesh);
 
             const speed = conf.SPEED.MIN + Math.random() * (conf.SPEED.MAX - conf.SPEED.MIN);
+            const minT = conf.LEADER_CHANGE_INTERVAL.MIN;
+            const maxT = conf.LEADER_CHANGE_INTERVAL.MAX;
 
             this.organisms.push({
                 id: this.nextOrganismId++,
@@ -595,7 +628,8 @@ export class Grid {
                 appearing: true,
                 vanishing: false,
                 scale: 1.0,
-                color: new THREE.Color().setHSL(Math.random(), 0.6, 0.4)
+                color: new THREE.Color().setHSL(Math.random(), 0.6, 0.4),
+                leaderTimer: minT + Math.random() * (maxT - minT)
             });
             return;
         }
