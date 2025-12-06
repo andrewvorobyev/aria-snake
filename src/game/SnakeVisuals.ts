@@ -99,108 +99,121 @@ void main() {
 
 class SnakeEye {
     public mesh: THREE.Group;
+    private eyeContainer: THREE.Group;
     private eyeBall: THREE.Mesh;
     private pupil: THREE.Mesh;
-    private side: number; // -1 for left, 1 for right
+    private side: number;
+
+    // Animation State
+    private time: number = 0;
     private blinkTimer: number = 0;
-    private blinkState: 'open' | 'closing' | 'opening' | 'closed' = 'open';
-    private blinkDuration: number = 0.1;
-    private openDuration: number = 0;
+    private isBlinking: boolean = false;
+    private blinkDuration: number = 0.15;
+    private nextBlink: number = 0;
 
     constructor(side: number) {
         this.side = side;
         this.mesh = new THREE.Group();
+        this.mesh.renderOrder = 10;
 
-        // Eyeball - Slightly flattened sphere
-        const wGeo = new THREE.SphereGeometry(0.25, 16, 16);
+        // Container for scaling/blinking
+        this.eyeContainer = new THREE.Group();
+        this.mesh.add(this.eyeContainer);
+
+        // Eyeball - Flat Disc
+        const wGeo = new THREE.SphereGeometry(0.25, 24, 24);
         const wMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
         this.eyeBall = new THREE.Mesh(wGeo, wMat);
-        this.eyeBall.scale.set(1, 0.8, 0.6); // Flattened
+        this.eyeBall.scale.set(1.0, 0.1, 1.0); // Flatten Y
+        this.eyeContainer.add(this.eyeBall);
 
-        // Pupil - Black disk/sphere on front
-        const pGeo = new THREE.SphereGeometry(0.12, 12, 12);
+        // Pupil - Flat Disc on top
+        const pGeo = new THREE.SphereGeometry(0.12, 16, 16);
         const pMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
         this.pupil = new THREE.Mesh(pGeo, pMat);
-        this.pupil.position.z = 0.22; // Protrude slightly
-        this.pupil.scale.z = 0.5;
+        this.pupil.position.y = 0.05; // Slightly above eyeball
+        this.pupil.scale.set(1.0, 0.1, 1.0); // Flatten Y
+        this.eyeContainer.add(this.pupil);
 
-        this.eyeBall.add(this.pupil);
-        this.mesh.add(this.eyeBall);
-
-        // Initial Blink Timer
-        this.resetBlinkTimer();
+        this.setNextBlink();
     }
 
-    private resetBlinkTimer() {
-        this.openDuration = 2.0 + Math.random() * 4.0; // Random blink interval 2-6s
+    private setNextBlink() {
+        this.nextBlink = 1.0 + Math.random() * 3.0;
+        this.blinkTimer = 0;
+        this.isBlinking = false;
+    }
+
+    public triggerBlink() {
+        this.isBlinking = true;
         this.blinkTimer = 0;
     }
 
     public update(dt: number, headPos: THREE.Vector2, angle: number) {
-        // Blinking Animation
-        this.blinkTimer += dt;
-        let scaleY = 1.0;
+        this.time += dt;
 
-        switch (this.blinkState) {
-            case 'open':
-                if (this.blinkTimer > this.openDuration) {
-                    this.blinkState = 'closing';
-                    this.blinkTimer = 0;
-                }
-                break;
-            case 'closing':
-                scaleY = 1.0 - (this.blinkTimer / this.blinkDuration);
-                if (scaleY <= 0.0) {
-                    scaleY = 0.0;
-                    this.blinkState = 'opening'; // Immediate reopen for quick blink
-                    this.blinkTimer = 0;
-                }
-                break;
-            case 'opening':
-                scaleY = clientScaleY(this.blinkTimer / this.blinkDuration);
-                if (scaleY >= 1.0) {
-                    scaleY = 1.0;
-                    this.blinkState = 'open';
-                    this.resetBlinkTimer();
-                }
-                break;
+        // --- Blink Logic ---
+        this.blinkTimer += dt;
+        let blinkScale = 1.0;
+
+        if (this.isBlinking) {
+            const t = this.blinkTimer / this.blinkDuration;
+            if (t >= 1.0) {
+                this.isBlinking = false;
+                this.setNextBlink();
+            } else {
+                const v = Math.sin(t * Math.PI); // Goes 0 -> 1 -> 0
+                blinkScale = 1.0 - v; // Goes 1 -> 0 -> 1 (open -> closed -> open)
+            }
+        } else if (this.blinkTimer > this.nextBlink) {
+            this.triggerBlink();
         }
 
-        // Helper for clamp
-        function clientScaleY(v: number) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+        // Squash along Local X (Forward relative to eye rotation) to "Close" the eye
+        // Ensure it doesn't go to exactly 0 to avoid division by zero or rendering issues
+        this.eyeContainer.scale.x = Math.max(0.01, blinkScale);
 
-        this.eyeBall.scale.y = Math.max(0.1, scaleY * 0.8); // Keep 0.8 base aspect
+        // --- Pulsing ---
+        // Asymmetric size pulse
+        const pulse = Math.sin(this.time * 4.0 + this.side) * 0.1 + 1.0;
+        this.eyeContainer.scale.z = pulse; // Pulse width (side-to-side)
+        // (X is driven by blink)
 
-        // Positioning
-        // Offset eyes to sides of head
-        // Head Radius is ~0.75. Place eyes at ~0.5 distance, +/- 45 degrees
-        const eyeOffsetDist = 0.45;
-        const eyeAngleOffset = this.side * 0.6; // +/- radians
+        // --- Pupil Movement ---
+        // Tend to middle (0,0), add noise
+        // Local X/Z coordinates
+        const noiseX = Math.cos(this.time * 1.5 + this.side) * 0.05;
+        const noiseZ = Math.sin(this.time * 2.0) * 0.05;
+        this.pupil.position.x = noiseX;
+        this.pupil.position.z = noiseZ;
 
-        const finalAngle = angle + eyeAngleOffset;
+        // --- Positioning ---
+        const forward = 0.2;
+        const sideOffset = this.side * 0.35;
 
-        const offsetX = Math.cos(finalAngle) * eyeOffsetDist;
-        const offsetZ = Math.sin(finalAngle) * eyeOffsetDist;
+        // Calculate World position
+        // Rotate offsets by angle
+        // Angle is direction CCW from +X (East)
 
-        // Target Position
-        this.mesh.position.set(headPos.x + offsetX, 0.8, headPos.y + offsetZ);
+        const cosAngle = Math.cos(angle);
+        const sinAngle = Math.sin(angle);
 
-        // Orientation: Eyes look forward (same as head angle)
-        // Adjust mesh rotation. Three.js Y is Up. 
-        // We are working in XZ plane primarily.
-        // Mesh Y-up. Rotation Z rotates around Up axis in this setup? 
-        // No, standard Three.js: Y is Up. 
-        // We want to rotate around Y axis to face 'angle' direction.
-        // But our Plane was rotated X -90.
-        // Let's set rotation directly.
+        // Forward vector components
+        const fx = cosAngle * forward;
+        const fz = sinAngle * forward;
 
-        // Correction: atan2(y, x) gives angle from X axis CCW.
-        // Threejs Rotation Y: CCW.
-        // But we want to look at angle. 
-        // Mesh default checks +Z?
-        // Sphere default ...
+        // Side vector components (perpendicular to forward, rotated by -PI/2)
+        const sx = Math.cos(angle - Math.PI / 2) * sideOffset;
+        const sz = Math.sin(angle - Math.PI / 2) * sideOffset;
 
-        this.mesh.rotation.y = -angle; // Invert? Try and see.
+        const finalX = headPos.x + fx + sx;
+        const finalZ = headPos.y + fz + sz; // headPos.y is world Z
+
+        this.mesh.position.set(finalX, 1.0, finalZ);
+
+        // Rotate meshes to face forward
+        // Mesh Y-rotation: -angle aligns the mesh's local +X axis with the snake's forward direction
+        this.mesh.rotation.y = -angle;
     }
 }
 
@@ -308,6 +321,12 @@ export class SnakeVisuals {
             for (const eye of this.eyes) {
                 eye.update(dt, head, angle);
             }
+        }
+    }
+
+    public triggerBlink() {
+        for (const eye of this.eyes) {
+            eye.triggerBlink();
         }
     }
 }

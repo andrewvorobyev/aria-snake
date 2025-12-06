@@ -57,6 +57,7 @@ export class Snake {
         return this.position.clone();
     }
 
-    // Helper to get bounding for collision if needed?
-    // Collision uses checking Logic Grid independently usually.
+    public triggerBlink() {
+        this.visuals.triggerBlink();
+    }
 }

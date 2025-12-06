@@ -72,6 +72,7 @@ export class Game {
                 // Safe to move X
             } else {
                 moveX = 0; // Blocked
+                this.snake.triggerBlink(); // Visual feedback
                 // No reset, just block
             }
         }
