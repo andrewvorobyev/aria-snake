@@ -58,60 +58,76 @@ export class Audio {
 
         this.isPlaying = true;
 
-        // Start the melodic sequence
+        // Start the melodic sequence only (no pad layer to avoid buzzing)
         this.playMelodicSequence();
-
-        // Add a soft pad for harmonic bed
-        this.addPadLayer();
     }
 
     private playMelodicSequence() {
         if (!this.audioContext || !this.bgGain) return;
 
-        // Musical scale: C major pentatonic for pleasant sound
-        // C4, D4, E4, G4, A4, C5, D5, E5
-        const notes = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25];
-
-        // Arpeggio patterns (indices into notes array)
-        const patterns = [
-            [0, 2, 4, 5],  // C, E, A, C5
-            [1, 3, 5, 7],  // D, G, C5, E5
-            [0, 3, 4, 6],  // C, G, A, D5
-            [2, 4, 5, 7],  // E, A, C5, E5
+        // Extended scale: C major pentatonic across 2 octaves
+        const notes = [
+            196.00, 220.00, 261.63, 293.66, 329.63,  // G3, A3, C4, D4, E4
+            392.00, 440.00, 523.25, 587.33, 659.25,  // G4, A4, C5, D5, E5
+            783.99, 880.00                            // G5, A5
         ];
 
-        let patternIndex = 0;
+        // More varied arpeggio patterns (indices into notes array)
+        const patterns = [
+            [2, 4, 6, 7],     // C4, E4, A4, C5
+            [3, 5, 7, 9],     // D4, G4, C5, E5
+            [0, 2, 5, 7],     // G3, C4, G4, C5
+            [4, 6, 8, 10],    // E4, A4, D5, G5
+            [1, 4, 6, 8],     // A3, E4, A4, D5
+            [2, 5, 7, 10],    // C4, G4, C5, G5
+            [3, 6, 8, 9],     // D4, A4, D5, E5
+            [0, 4, 7, 9],     // G3, E4, C5, E5
+        ];
+
+        // Bass notes that complement the patterns
+        const bassNotes = [65.41, 73.42, 82.41, 98.00]; // C2, D2, E2, G2
+
+        // Start from random pattern for variety
+        let patternIndex = Math.floor(Math.random() * patterns.length);
         let noteIndex = 0;
-        const noteInterval = 0.4; // seconds between notes
-        const noteDuration = 0.6; // note length
+        let measureCount = 0;
 
         const playNote = () => {
             if (!this.audioContext || !this.bgGain || !this.isPlaying) return;
 
             const pattern = patterns[patternIndex];
-            const freq = notes[pattern[noteIndex]];
+            let freq = notes[pattern[noteIndex]];
+
+            // Occasional random variation (10% chance to pick nearby note)
+            if (Math.random() < 0.1) {
+                const variation = Math.random() < 0.5 ? -1 : 1;
+                const newIndex = Math.max(0, Math.min(notes.length - 1, pattern[noteIndex] + variation));
+                freq = notes[newIndex];
+            }
+
+            // Fast energetic tempo
+            const baseInterval = 0.15 + Math.random() * 0.05;
+            const noteDuration = 0.25 + Math.random() * 0.1;
 
             // Create oscillator for the note
             const osc = this.audioContext.createOscillator();
             osc.type = 'sine';
             osc.frequency.value = freq;
+            osc.detune.value = (Math.random() - 0.5) * 6;
 
-            // Add slight detune for warmth
-            osc.detune.value = (Math.random() - 0.5) * 8;
-
-            // Envelope for smooth attack/release
+            // Envelope 
             const envelope = this.audioContext.createGain();
             const now = this.audioContext.currentTime;
+            const volume = 0.08 + Math.random() * 0.04; // Slight volume variation
             envelope.gain.setValueAtTime(0, now);
-            envelope.gain.linearRampToValueAtTime(0.12, now + 0.05);
-            envelope.gain.exponentialRampToValueAtTime(0.06, now + noteDuration * 0.5);
+            envelope.gain.linearRampToValueAtTime(volume, now + 0.04);
+            envelope.gain.exponentialRampToValueAtTime(volume * 0.5, now + noteDuration * 0.6);
             envelope.gain.exponentialRampToValueAtTime(0.001, now + noteDuration);
 
-            // Soft low-pass filter
+            // Filter
             const filter = this.audioContext.createBiquadFilter();
             filter.type = 'lowpass';
-            filter.frequency.value = 2000;
-            filter.Q.value = 0.5;
+            filter.frequency.value = 1800 + Math.random() * 400;
 
             osc.connect(filter);
             filter.connect(envelope);
@@ -120,21 +136,57 @@ export class Audio {
             osc.start(now);
             osc.stop(now + noteDuration);
 
+            // Play bass note on first beat of pattern
+            if (noteIndex === 0) {
+                this.playBassNote(bassNotes[patternIndex % bassNotes.length], now);
+            }
+
             // Advance to next note
             noteIndex++;
             if (noteIndex >= pattern.length) {
                 noteIndex = 0;
-                patternIndex = (patternIndex + 1) % patterns.length;
+                measureCount++;
+
+                // Change pattern - sometimes random, sometimes sequential
+                if (measureCount % 4 === 0 && Math.random() < 0.3) {
+                    patternIndex = Math.floor(Math.random() * patterns.length);
+                } else {
+                    patternIndex = (patternIndex + 1) % patterns.length;
+                }
             }
 
             // Schedule next note
             if (this.isPlaying) {
-                setTimeout(playNote, noteInterval * 1000);
+                setTimeout(playNote, baseInterval * 1000);
             }
         };
 
-        // Start the sequence
         playNote();
+    }
+
+    private playBassNote(freq: number, startTime: number) {
+        if (!this.audioContext || !this.bgGain) return;
+
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+
+        const envelope = this.audioContext.createGain();
+        envelope.gain.setValueAtTime(0, startTime);
+        envelope.gain.linearRampToValueAtTime(0.08, startTime + 0.03);
+        envelope.gain.exponentialRampToValueAtTime(0.03, startTime + 0.3);
+        envelope.gain.exponentialRampToValueAtTime(0.001, startTime + 0.5);
+
+        const filter = this.audioContext.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 300;
+
+        osc.connect(filter);
+        filter.connect(envelope);
+        envelope.connect(this.bgGain);
+
+        osc.start(startTime);
+        osc.stop(startTime + 0.6);
     }
 
     private addPadLayer() {
@@ -222,9 +274,6 @@ export class Audio {
         osc2.start(now);
         osc1.stop(now + 0.25);
         osc2.stop(now + 0.15);
-
-        // Add a subtle "pop" noise burst
-        this.playNoiseBurst(now, 0.05, 2000);
     }
 
     private playNoiseBurst(startTime: number, duration: number, filterFreq: number) {
