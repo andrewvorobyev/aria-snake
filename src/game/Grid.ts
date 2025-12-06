@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from '../constants';
+import { FruitVisuals, FruitType } from './FruitVisuals';
 
 const BACKGROUND_VERTEX_SHADER = `
 varying vec2 vUv;
@@ -127,6 +128,7 @@ interface Fruit {
     x: number;
     z: number;
     mesh: THREE.Mesh;
+    type: FruitType;
 }
 
 export class Grid {
@@ -138,10 +140,9 @@ export class Grid {
 
     private obstacleGeometry: THREE.BoxGeometry;
     private obstacleMaterial: THREE.MeshStandardMaterial;
-    private fruitGeometry: THREE.SphereGeometry;
-    private fruitMaterial: THREE.MeshStandardMaterial;
 
     private bgMaterial: THREE.ShaderMaterial; // Store to update uniforms
+
 
     private occupiedCells: Set<string> = new Set();
 
@@ -150,9 +151,6 @@ export class Grid {
 
         this.obstacleGeometry = new THREE.BoxGeometry(CONFIG.GRID.CELL_SIZE * 0.9, 1, CONFIG.GRID.CELL_SIZE * 0.9);
         this.obstacleMaterial = new THREE.MeshStandardMaterial({ color: CONFIG.COLORS.OBSTACLE });
-
-        this.fruitGeometry = new THREE.SphereGeometry(CONFIG.GRID.CELL_SIZE * CONFIG.FRUIT.SIZE_CELLS * 0.4);
-        this.fruitMaterial = new THREE.MeshStandardMaterial({ color: CONFIG.COLORS.FRUIT });
 
         // Initialize shader material
         this.bgMaterial = new THREE.ShaderMaterial({
@@ -242,6 +240,13 @@ export class Grid {
         if (this.fruits.length < CONFIG.FRUIT.TARGET_COUNT) {
             this.spawnFruit(snakePath);
         }
+
+        // Update Fruit Animations (Shader Time)
+        this.fruits.forEach(f => {
+            if (f.mesh.material instanceof THREE.ShaderMaterial) {
+                f.mesh.material.uniforms.uTime.value += dt;
+            }
+        });
     }
 
     private spawnObstacle(snakePath: THREE.Vector3[]) {
@@ -271,21 +276,23 @@ export class Grid {
     }
 
     private spawnFruit(snakePath: THREE.Vector3[]) {
-        // Need 3x3 clearance
-        const size = CONFIG.FRUIT.SIZE_CELLS;
-        const pos = this.getRandomEmptyRegion(snakePath, 2 + size / 2, size);
+        const sizeCells = CONFIG.FRUIT.SIZE_CELLS;
+        // Use clearance based on size
+        const pos = this.getRandomEmptyRegion(snakePath, 2 + sizeCells / 2, sizeCells);
 
         if (pos) {
-            const mesh = new THREE.Mesh(this.fruitGeometry, this.fruitMaterial);
-            mesh.position.set(pos.x, 0.5, pos.z);
-            mesh.castShadow = true;
-            this.mesh.add(mesh);
+            // Random Fruit Type
+            const type = Math.floor(Math.random() * 4) as FruitType;
+            const mesh = FruitVisuals.createFruitMesh(type);
 
-            this.fruits.push({
-                x: pos.x,
-                z: pos.z,
-                mesh: mesh
-            });
+            mesh.position.set(pos.x, 0, pos.z);
+
+            // Scale to match config size
+            const scale = sizeCells * CONFIG.GRID.CELL_SIZE * 0.8;
+            mesh.scale.multiplyScalar(scale);
+
+            this.mesh.add(mesh);
+            this.fruits.push({ x: pos.x, z: pos.z, mesh, type });
         }
     }
 

@@ -6,7 +6,7 @@ export const CONFIG = {
         TARGET_OBSTACLE_DENSITY: 0.05, // 10%
     },
     SNAKE: {
-        INITIAL_LENGTH: 15,
+        INITIAL_LENGTH: 25,
         SPEED: 10,
         CIRCLE_RADIUS: 0.75, // Radius of the snake's body segments
         PULSE_SPEED: 4.0, // Speed of the pulsing animation
