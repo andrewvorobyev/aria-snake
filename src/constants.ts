@@ -24,7 +24,7 @@ export const CONFIG = {
     },
     ORGANISMS: {
         COUNT: 10,
-        BLOB_COUNT: { MIN: 2, MAX: 7 },
+        BLOB_COUNT: { MIN: 2, MAX: 12 },
         RADIUS: { MIN: 0.4, MAX: 0.9 },
         SPACING: { MIN: 1.0, MAX: 2.2 },
         SPEED: { MIN: 0.03, MAX: 0.05 },
@@ -38,5 +38,10 @@ export const CONFIG = {
         FOV: 60,
         HEIGHT_OFFSET: 100, // Distance from grid to fit 100 units (approx 50 / tan(30) = 86.6)
         LOOK_AT_OFFSET: 0,
+    },
+    VIGNETTE: {
+        RADIUS_START: 0.6,
+        RADIUS_END: 1.3,
+        DARKNESS: 0.4, // Lower is darker
     }
 };

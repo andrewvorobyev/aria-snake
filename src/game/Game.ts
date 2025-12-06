@@ -4,12 +4,14 @@ import { Renderer } from './Renderer';
 import { Input } from './Input';
 import { Snake } from './Snake';
 import { Grid } from './Grid';
+import { Background } from './Background';
 
 export class Game {
     private renderer: Renderer;
     private input: Input;
     private snake: Snake;
     private grid: Grid;
+    private background: Background;
     private lastTime: number = 0;
 
     constructor() {
@@ -19,6 +21,9 @@ export class Game {
         // Grid first to know bounds? Grid resizes based on camera/window, so initially we rely on current window.
         this.grid = new Grid(this.renderer.getAspectRatio());
         this.renderer.scene.add(this.grid.mesh);
+
+        this.background = new Background();
+        this.renderer.scene.add(this.background.mesh);
 
         // Fit camera to grid immediately
         const gridPhysicalHeight = CONFIG.GRID.FIXED_SIDE * CONFIG.GRID.CELL_SIZE;
@@ -100,6 +105,7 @@ export class Game {
         const gridDt = Math.min(dt, 0.1);
         // Avoid large delta spikes for logic spawn
         this.grid.update(gridDt, this.snake.getPath());
+        this.background.update(dt);
         this.snake.animate(dt);
 
         // Fruit Collection
