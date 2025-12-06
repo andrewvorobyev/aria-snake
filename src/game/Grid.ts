@@ -281,18 +281,21 @@ export class Grid {
                 this.tempVec3.subVectors(parent.pos, node.pos);
                 const currentDist = this.tempVec3.length();
 
-                // Spring / Constraint
+                // Spring / Constraint (frame-rate independent)
                 if (currentDist > node.dist) {
                     // Pull towards parent
-                    const k = 0.15; // Stiffness
-                    const pull = (currentDist - node.dist) * k;
+                    // k is stiffness per second, scale by dt
+                    const k = 10.0; // Stiffness per second
+                    const pull = (currentDist - node.dist) * k * dt;
                     this.tempVec3.normalize().multiplyScalar(pull);
                     node.pos.add(this.tempVec3);
                 }
 
-                // Wiggle (Bacteria-like movement)
-                const wiggleX = Math.sin(this.time * 4.0 + node.wigglePhase) * 0.02;
-                const wiggleZ = Math.cos(this.time * 3.0 + node.wigglePhase) * 0.02;
+                // Wiggle (Bacteria-like movement) - frame-rate independent
+                // Wiggle amplitude is per second, multiply by dt
+                const wiggleSpeed = 1.5; // Units per second
+                const wiggleX = Math.sin(this.time * 4.0 + node.wigglePhase) * 0.02 * wiggleSpeed * dt;
+                const wiggleZ = Math.cos(this.time * 3.0 + node.wigglePhase) * 0.02 * wiggleSpeed * dt;
                 node.pos.x += wiggleX;
                 node.pos.z += wiggleZ;
 

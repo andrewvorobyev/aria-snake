@@ -13,6 +13,9 @@ export class Game {
     private grid: Grid;
     private background: Background;
     private lastTime: number = 0;
+    private frameCount: number = 0;
+    private timeAccumulator: number = 0;
+    private frameInterval: number = 1000 / 60;
 
     constructor() {
         this.renderer = new Renderer('app');
@@ -46,13 +49,34 @@ export class Game {
     }
 
     private loop(time: number) {
-        const dt = Math.min((time - this.lastTime) / 1000, 0.1); // Cap dt
+        requestAnimationFrame(this.loop.bind(this));
+
+        const elapsed = time - this.lastTime;
+
+        // Limit to ~60 FPS. 
+        // On 120Hz screens, rAF fires every ~8.3ms.
+        // We want to skip the first call (8.3ms) and take the second (16.6ms).
+        // Using a threshold slightly lower than 16.6ms (e.g. 14ms) ensures we catch it 
+        // even if it arrives slightly early (jitter), but definitely skip the 8.3ms one.
+        if (elapsed < 14.0) return;
+
+        const dt = Math.min(elapsed / 1000, 0.1); // Cap dt
+
+        // Simple update - rely on v-sync cadence for smoothness
         this.lastTime = time;
 
         this.update(dt);
         this.renderer.render();
 
-        requestAnimationFrame(this.loop.bind(this));
+        // FPS Calc
+        this.frameCount++;
+        this.timeAccumulator += dt;
+        if (this.timeAccumulator >= 0.5) {
+            const fps = this.frameCount / this.timeAccumulator;
+            this.renderer.updateFPS(fps);
+            this.frameCount = 0;
+            this.timeAccumulator = 0;
+        }
     }
 
     private update(dt: number) {

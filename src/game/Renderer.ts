@@ -6,9 +6,22 @@ export class Renderer {
     public camera: THREE.OrthographicCamera;
     public renderer: THREE.WebGLRenderer;
     private container: HTMLElement;
+    private fpsElement: HTMLDivElement;
 
     constructor(containerId: string) {
         this.container = document.getElementById(containerId) as HTMLElement;
+
+        // FPS Counter
+        this.fpsElement = document.createElement('div');
+        this.fpsElement.style.position = 'absolute';
+        this.fpsElement.style.top = '10px';
+        this.fpsElement.style.right = '10px';
+        this.fpsElement.style.color = '#00ff00';
+        this.fpsElement.style.fontFamily = 'monospace';
+        this.fpsElement.style.fontWeight = 'bold';
+        this.fpsElement.style.pointerEvents = 'none';
+        this.container.appendChild(this.fpsElement);
+
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(CONFIG.COLORS.BACKGROUND);
 
@@ -93,5 +106,11 @@ export class Renderer {
 
     public getAspectRatio(): number {
         return window.innerWidth / window.innerHeight;
+    }
+
+    public updateFPS(fps: number) {
+        if (this.fpsElement) {
+            this.fpsElement.innerText = `FPS: ${Math.round(fps)}`;
+        }
     }
 }
