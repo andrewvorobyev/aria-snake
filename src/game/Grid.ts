@@ -179,7 +179,7 @@ export class Grid {
 
     // Debug
     private debugGroup = new THREE.Group();
-    private showDebug: boolean = true;
+    private showDebug: boolean = new URLSearchParams(window.location.search).get('debug') === '1';
 
     constructor(aspectRatio: number) {
         this.mesh = new THREE.Group();
