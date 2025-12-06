@@ -15,9 +15,33 @@ export class Snake {
     constructor(startPos: THREE.Vector3) {
         this.position = startPos.clone();
 
-        // Fill initial path - all at head position to start
-        for (let i = 0; i < this.length; i++) {
-            this.path.push(this.position.clone()); // Stacked at start
+        // Initialize path in a spiral coil
+        const pointsPerUnit = 5;
+        const totalPoints = this.length * pointsPerUnit;
+        const coilGap = CONFIG.SNAKE.CIRCLE_RADIUS * 2.5; // Gap between coils
+
+        let angle = Math.PI / 2; // Start at +Z (tail trails behind head at +Z)
+
+        for (let i = 0; i < totalPoints; i++) {
+            // Archimedean spiral: r = b * theta
+            // We shift theta so r starts at 0 when angle is PI/2
+            const thetaDiff = angle - Math.PI / 2;
+            const b = coilGap / (2 * Math.PI);
+            const r = b * thetaDiff;
+
+            const x = Math.cos(angle) * r;
+            const z = Math.sin(angle) * r;
+
+            const p = this.position.clone().add(new THREE.Vector3(x, 0, z));
+            this.path.push(p);
+
+            // Increment angle to maintain roughly constant point spacing (0.1)
+            // Arc length ds = 0.1
+            // ds ~ r * dTheta => dTheta = ds / r
+            // avoid div by zero for first points
+            const effectiveR = Math.max(r, 0.2);
+            const dTheta = 0.2 / effectiveR; // 0.2 spacing for smoother init
+            angle += dTheta;
         }
 
         this.visuals = new SnakeVisuals();
