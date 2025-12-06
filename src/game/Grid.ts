@@ -57,8 +57,8 @@ void main() {
     float time = uTime * 0.1;
 
     // --- 1. Background Gradient (Pleasant Fresh Green) ---
-    vec3 bgA = vec3(0.1, 0.2, 0.15); // Fresh Emerald
-    vec3 bgB = vec3(0.02, 0.08, 0.05); // Deep Forest
+    vec3 bgA = vec3(0.6, 0.9, 0.7); // Light Mint
+    vec3 bgB = vec3(0.4, 0.7, 0.5); // Soft Green
     vec3 col = mix(bgA, bgB, uv.y + 0.2 * sin(time * 0.5));
 
     // --- 2. Fluid Currents (Volumetric) ---
@@ -77,7 +77,7 @@ void main() {
     float currents = smoothstep(-0.4, 1.0, fluidNoise);
     
     // Minty Light
-    vec3 currentCol = vec3(0.5, 0.9, 0.6); 
+    vec3 currentCol = vec3(0.8, 1.0, 0.9); 
     col += currents * currentCol * 0.12; 
 
     // --- 3. Drifting Pollen ---
@@ -93,7 +93,7 @@ void main() {
     float speck2 = smoothstep(0.4, 0.9, n2);
     
     // Soft Cream Pollen
-    vec3 dustCol = vec3(1.0, 1.0, 0.8);
+    vec3 dustCol = vec3(1.0, 1.0, 0.6);
     col += (speck1 * 0.15 + speck2 * 0.1) * dustCol;
 
     // --- 4. Noise / Grain ---
@@ -213,10 +213,13 @@ export class Grid {
             this.spawnFruit(snakePath);
         }
 
-        // Update Fruit Animations (Shader Time)
+        // Update Fruit Animations (Shader Time + Wiggle)
         this.fruits.forEach(f => {
             if (f.mesh.material instanceof THREE.ShaderMaterial) {
-                f.mesh.material.uniforms.uTime.value += dt;
+                const t = f.mesh.material.uniforms.uTime.value += dt;
+                // Bacteria wobble
+                const seed = f.x * 12.34 + f.z * 56.78;
+                f.mesh.rotation.y = Math.sin(t * 2.0 + seed) * 0.15;
             }
         });
 

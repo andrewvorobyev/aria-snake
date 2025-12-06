@@ -1,12 +1,12 @@
 import * as THREE from 'three';
-import { CONFIG } from '../constants';
 
-export enum FruitType {
-    APPLE = 0,
-    BANANA = 1,
-    BLUEBERRY = 2,
-    RASPBERRY = 3
-}
+export const FruitType = {
+    APPLE: 0,
+    BANANA: 1,
+    BLUEBERRY: 2,
+    RASPBERRY: 3
+} as const;
+export type FruitType = typeof FruitType[keyof typeof FruitType];
 
 const VERTEX_SHADER = `
 varying vec2 vUv;
@@ -72,8 +72,9 @@ void main() {
     // 2D UV Space (-1 to 1)
     vec2 p = vUv * 2.0 - 1.0;
     
-    // Animation: Bobbing
-    p.y += 0.03 * sin(uTime * 2.0 + p.x); 
+    // Animation: Bobbing & Wiggle (Bacteria Flagella)
+    vec2 wiggle = vec2(sin(uTime * 3.0 + p.y*2.0), cos(uTime * 2.5 + p.x*3.0)) * 0.03;
+    p += wiggle; 
     
     // Animation: Pulsing Size
     float pulse = 0.02 * sin(uTime * 3.0);

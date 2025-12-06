@@ -149,7 +149,7 @@ void main() {
         // --- Color ---
         float t = float(i) / float(max(uPointCount, 1));
         float hue = fract(t * 1.0 - uTime * 0.1); 
-        vec3 col = hsv2rgb(vec3(hue, 0.7, 1.0));
+        vec3 col = hsv2rgb(vec3(hue, 0.45, 1.0)); // Pastel Rainbow
         
         colorSum += col * w;
         patternSum += spots * w; // Accumulate pattern
@@ -208,7 +208,7 @@ void main() {
     // Map Pattern to visual features
     // pattern 0..1 (Spots)
     // Darken inside spots (Nuclei)
-    vec3 tissueColor = baseColor * (0.6 + 0.4 * (1.0 - pattern));
+    vec3 tissueColor = baseColor * (0.8 + 0.2 * (1.0 - pattern));
     
     // Veins (Edges of spots)
     // glowing network
@@ -217,12 +217,12 @@ void main() {
     
     vec3 finalColor = tissueColor * diffuse;
     
-    // Add glowing veins
-    finalColor += vec3(1.0, 0.9, 0.6) * veinMask * 0.3;
+    // Dark Veins (Noise)
+    finalColor = mix(finalColor, vec3(0.1, 0.0, 0.2), veinMask * 0.5);
     
-    // Membrane Glow at edge
-    float membrane = smoothstep(-0.15, 0.0, d);
-    finalColor += vec3(0.2, 0.8, 0.6) * membrane * 0.6; 
+    // Dark Membrane Edge
+    float membrane = smoothstep(-0.2, 0.0, d);
+    finalColor = mix(finalColor, vec3(0.0, 0.05, 0.1), membrane * 0.8); 
 
     // Add Lights
     finalColor += vec3(1.0) * spec * 0.4;

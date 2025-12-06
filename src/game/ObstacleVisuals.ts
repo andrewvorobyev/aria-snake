@@ -34,65 +34,90 @@ float snoise(vec2 v) {
 void main() {
     vec2 p = vUv * 2.0 - 1.0; // -1 to 1
     
-    // Base shape: Circle in center
-    float d = sdCircle(p, 0.4);
+    // Morphing Noise
+    float morph = snoise(p * 3.0 + uTime * 1.0) * 0.04;
+    
+    // Base shape: Rectangular Box (Oversized)
+    float boxSize = 0.95;
+    float d = sdBox(p, vec2(boxSize, boxSize)) - 0.05; 
     
     // Connections
-    float blend = 0.4; // Smoothness of connection
-    float armWidth = 0.4;
+    float blend = 0.01; // Hard union for straight edges
+    float armWidth = 0.95; 
+    
+    float linkPulse = 0.0;
+    
+    // Pulse Settings
+    float beamWidth = 0.12; 
+    float flowSpeed = 10.0;
     
     // North (1) -> y > 0
     if ((uMask & 1) != 0) {
-        float arm = sdBox(p - vec2(0.0, 1.0), vec2(armWidth, 1.0));
+        // Extend slightly past 1.0 to ensure overlap
+        float arm = sdBox(p - vec2(0.0, 1.05), vec2(armWidth, 1.05));
         d = smin(d, arm, blend);
+        
+        // Pulse: Vertical line x=0
+        float beam = smoothstep(beamWidth, 0.02, abs(p.x)) * step(0.0, p.y);
+        float flow = 0.5 + 0.5 * sin(p.y * 10.0 - uTime * flowSpeed);
+        linkPulse += beam * flow;
     }
     
     // East (2) -> x > 0
     if ((uMask & 2) != 0) {
-        float arm = sdBox(p - vec2(1.0, 0.0), vec2(1.0, armWidth));
+        float arm = sdBox(p - vec2(1.05, 0.0), vec2(1.05, armWidth));
         d = smin(d, arm, blend);
+        
+        // Pulse: Horizontal line y=0
+        float beam = smoothstep(beamWidth, 0.02, abs(p.y)) * step(0.0, p.x);
+        float flow = 0.5 + 0.5 * sin(p.x * 10.0 - uTime * flowSpeed);
+        linkPulse += beam * flow;
     }
     
     // South (4) -> y < 0
     if ((uMask & 4) != 0) {
-        float arm = sdBox(p - vec2(0.0, -1.0), vec2(armWidth, 1.0));
+        float arm = sdBox(p - vec2(0.0, -1.05), vec2(armWidth, 1.05));
         d = smin(d, arm, blend);
+        
+        float beam = smoothstep(beamWidth, 0.02, abs(p.x)) * step(0.0, -p.y);
+        float flow = 0.5 + 0.5 * sin(-p.y * 10.0 - uTime * flowSpeed);
+        linkPulse += beam * flow;
     }
     
     // West (8) -> x < 0
     if ((uMask & 8) != 0) {
-        float arm = sdBox(p - vec2(-1.0, 0.0), vec2(1.0, armWidth));
+        float arm = sdBox(p - vec2(-1.05, 0.0), vec2(1.05, armWidth));
         d = smin(d, arm, blend);
+        
+        float beam = smoothstep(beamWidth, 0.02, abs(p.y)) * step(0.0, -p.x);
+        float flow = 0.5 + 0.5 * sin(-p.x * 10.0 - uTime * flowSpeed);
+        linkPulse += beam * flow;
     }
     
-    // Organic Noise Distortion
-    float noise = snoise(p * 3.0 + uTime * 0.5);
-    d -= 0.05 * noise;
+    // Apply Morph (less intense)
+    d -= morph * 0.5;
     
     // --- Rendering ---
     
     // Cutout
-    float alpha = 1.0 - smoothstep(0.0, 0.05, d);
+    float alpha = 1.0 - smoothstep(0.0, 0.02, d);
     if (alpha <= 0.0) discard;
     
     // Color / Shading
     vec3 col = uColor;
     
-    // Darker Core
-    col *= 0.8 + 0.4 * smoothstep(0.0, 0.5, abs(d)); // Lighter edges? No, darker core usually looks better or vice versa.
-    // Let's do Lighter Center (Glow) -> Darker Edge (Membrane)
-    // d is negative inside.
-    // -d goes from 0 to large.
-    float internalDist = -d;
-    col = mix(uColor * 0.5, uColor * 1.5, smoothstep(0.0, 0.4, internalDist));
+    // Bevel
+    col *= 0.6 + 0.4 * smoothstep(-0.2, -0.8, d); 
     
-    // Cell Wall / Outline
-    float outline = smoothstep(-0.1, 0.0, d);
-    col = mix(col, uColor * 0.3, outline * 0.5); // Darken edge
+    // Add Link Pulse (Bright Cyan/Teal for contrast)
+    // Make it distinct
+    vec3 pulseCol = vec3(0.2, 0.9, 1.0);
+    col = mix(col, pulseCol, linkPulse * 0.8); // Override color where pulse is
     
-    // Texture grain
-    col += (rand(vUv * 10.0) - 0.5) * 0.1;
-
+    // Dark Outline
+    float outline = smoothstep(-0.05, 0.0, d);
+    col = mix(col, vec3(0.0), outline);
+    
     gl_FragColor = vec4(col, alpha);
 }
 `;
@@ -111,7 +136,7 @@ export class ObstacleVisuals {
         geometry.rotateX(-Math.PI / 2); // Flat on XZ
 
         // Lift slightly? No, keep flush? 
-        // Snake is at y=0. Fruits at 0.05.
+        // Snake is at y=0.05. Fruits at 0.05.
         // Obstacles should block snake.
         // Let's put them at y=0.01 to cover grid lines but be below fruits?
         // Or y=0.2 to be "walls".
@@ -122,7 +147,7 @@ export class ObstacleVisuals {
             fragmentShader: OBSTACLE_FRAGMENT_SHADER,
             uniforms: {
                 uTime: { value: 0 },
-                uColor: { value: new THREE.Vector3(0.6, 0.2, 0.2) }, // Organic Red/Brown
+                uColor: { value: new THREE.Vector3(0.18, 0.1, 0.25) }, // Stylish Deep Indigo/Plum
                 uMask: { value: 0 }
             },
             transparent: true,
@@ -130,7 +155,7 @@ export class ObstacleVisuals {
         });
 
         const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.y = 0.02;
+        mesh.position.y = 0.02; // Keep at 0.02
 
         return mesh;
     }
