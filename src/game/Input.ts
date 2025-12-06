@@ -56,11 +56,11 @@ export class Input {
             }
         }
 
-        // Keyboard
-        if (this.keys.has('ArrowUp') || this.keys.has('KeyW')) dy = -1;
-        if (this.keys.has('ArrowDown') || this.keys.has('KeyS')) dy = 1;
-        if (this.keys.has('ArrowLeft') || this.keys.has('KeyA')) dx = -1;
-        if (this.keys.has('ArrowRight') || this.keys.has('KeyD')) dx = 1;
+        // Keyboard - Arrow keys only (WASD is for effects)
+        if (this.keys.has('ArrowUp')) dy = -1;
+        if (this.keys.has('ArrowDown')) dy = 1;
+        if (this.keys.has('ArrowLeft')) dx = -1;
+        if (this.keys.has('ArrowRight')) dx = 1;
 
         if (dx !== 0 || dy !== 0) {
             const len = Math.sqrt(dx * dx + dy * dy);
@@ -75,11 +75,12 @@ export class Input {
      * Returns null if no button was pressed this frame
      */
     public getButtonEffect(): ButtonEffect {
-        // Check keyboard (1, 2, 3, 4 keys)
-        if (this.pressedThisFrame.has('Digit1')) return 'X';
-        if (this.pressedThisFrame.has('Digit2')) return 'Y';
-        if (this.pressedThisFrame.has('Digit3')) return 'A';
-        if (this.pressedThisFrame.has('Digit4')) return 'B';
+        // Check keyboard - WASD or 1234 keys
+        // W/1 = X (blue), A/2 = Y (yellow), S/3 = A (green), D/4 = B (red)
+        if (this.pressedThisFrame.has('KeyW') || this.pressedThisFrame.has('Digit1')) return 'X';
+        if (this.pressedThisFrame.has('KeyA') || this.pressedThisFrame.has('Digit2')) return 'Y';
+        if (this.pressedThisFrame.has('KeyS') || this.pressedThisFrame.has('Digit3')) return 'A';
+        if (this.pressedThisFrame.has('KeyD') || this.pressedThisFrame.has('Digit4')) return 'B';
 
         // Check gamepad buttons
         const gamepad = navigator.getGamepads()[0];
