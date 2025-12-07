@@ -20,9 +20,9 @@ export const CONFIG = {
         EAT_PULSE: {
             SPEED: 1.5, // How fast the pulse travels down body
             DURATION: 1.5, // Total time active
-            COLOR: 0xff0000
+            COLOR: 0x44dd44  // Green pulse (broccoli eating!)
         },
-        SPINE_COLOR: 0xff2244
+        SPINE_COLOR: 0x228833  // Dark green spine
     },
     COLORS: {
         BACKGROUND: 0x111111,
@@ -37,7 +37,7 @@ export const CONFIG = {
         SPACING: { MIN: 0.5, MAX: 1.8 },
         SPEED: { MIN: 0.03, MAX: 0.05 },
         LEADER_CHANGE_INTERVAL: { MIN: 2.0, MAX: 6.0 },
-        EYE_COUNT: { MIN: 1, MAX: 3 },
+        EYE_COUNT: { MIN: 1, MAX: 6 },
         EYES: {
             WANDER_SPEED: 0.0075, // Lower = Slower
             PUPIL_SPEED: 0.15,

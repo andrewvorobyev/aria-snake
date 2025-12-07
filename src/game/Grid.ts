@@ -320,12 +320,10 @@ export class Grid {
             this.spawnFruit();
         }
 
-        // Fruit Animations
+        // Fruit Animations (shader-based only)
         this.fruits.forEach(f => {
             if (f.mesh.material instanceof THREE.ShaderMaterial) {
-                const t = f.mesh.material.uniforms.uTime.value += dt;
-                const seed = f.x * 12.34 + f.z * 56.78;
-                f.mesh.rotation.y = Math.sin(t * 2.0 + seed) * 0.15;
+                f.mesh.material.uniforms.uTime.value += dt;
             }
         });
 
