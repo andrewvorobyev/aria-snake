@@ -4,8 +4,6 @@ import { CONFIG } from '../constants';
 import { FruitVisuals, FruitType } from './FruitVisuals';
 import { OrganismVisuals } from './OrganismVisuals';
 
-const TARGET_ORGANISM_COUNT = 6;
-
 // Interface for Organisms with Physics
 interface BlobNode {
     pos: THREE.Vector3;
@@ -219,7 +217,7 @@ export class Grid {
         // --- 3. Clean up Organisms ---
         // (Removing old dispose logic for brevity, assuming minimal churn for now or will re-add if needed)
         // Check spawn
-        if (this.organisms.length < TARGET_ORGANISM_COUNT) {
+        if (this.organisms.length < CONFIG.ORGANISMS.COUNT) {
             this.spawnOrganism(snakePath);
         }
 
