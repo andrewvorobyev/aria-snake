@@ -143,6 +143,16 @@ export class Game {
         this.snake.animate(dt);
         this.particles.update(dt);
 
+        // Update background trails
+        const bounds = this.grid.getWorldBounds();
+        const organismPositions = this.grid.getOrganismPositions();
+        this.background.renderTrails(
+            this.renderer.renderer,
+            this.snake.getPath(),
+            organismPositions,
+            bounds
+        );
+
         // Fruit Collection
         const newHeadPos = this.snake.getHeadPosition();
         if (this.grid.handleFruitCollection(newHeadPos.x, newHeadPos.z, r)) {

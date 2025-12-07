@@ -713,4 +713,47 @@ export class Grid {
         return false;
     }
 
+    /**
+     * Get organism positions for background rendering
+     * Returns center of mass of all nodes for proper trail effect
+     */
+    public getOrganismPositions(): { x: number, z: number, radius: number }[] {
+        return this.organisms.map(org => {
+            // Calculate center of mass of all nodes
+            let sumX = 0, sumZ = 0, maxRadius = 0;
+            for (const node of org.nodes) {
+                sumX += node.pos.x;
+                sumZ += node.pos.z;
+                maxRadius = Math.max(maxRadius, node.r);
+            }
+            const count = org.nodes.length || 1;
+            return {
+                x: sumX / count,
+                z: sumZ / count,
+                radius: maxRadius
+            };
+        });
+    }
+
+    /**
+     * Get fruit positions for background rendering
+     */
+    public getFruitPositions(): { x: number, z: number }[] {
+        return this.fruits.map(f => ({ x: f.x, z: f.z }));
+    }
+
+    /**
+     * Get world bounds
+     */
+    public getWorldBounds(): { width: number, depth: number } {
+        return { width: this.width, depth: this.depth };
+    }
+
+    /**
+     * Get organism visual meshes for background rendering
+     */
+    public getOrganismMeshes(): THREE.Object3D[] {
+        return this.organisms.map(org => org.visuals.mesh);
+    }
+
 }
