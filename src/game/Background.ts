@@ -79,73 +79,110 @@ vec4 sampleMaskBlurred(vec2 uv, float radius) {
     return sum / totalWeight;
 }
 
+// Voronoi for stone cracks
+float voronoi(vec2 p) {
+    vec2 i_st = floor(p);
+    vec2 f_st = fract(p);
+    float m_dist = 1.0;
+    for (int y = -1; y <= 1; y++) {
+        for (int x = -1; x <= 1; x++) {
+            vec2 neighbor = vec2(float(x), float(y));
+            vec2 cellId = i_st + neighbor;
+            float rx = fract(sin(dot(cellId, vec2(127.1, 311.7))) * 43758.5453);
+            float ry = fract(sin(dot(cellId, vec2(269.5, 183.3))) * 43758.5453);
+            vec2 point = vec2(rx, ry);
+            vec2 diff = neighbor + point - f_st;
+            m_dist = min(m_dist, dot(diff, diff));
+        }
+    }
+    return sqrt(m_dist);
+}
+
 void main() {
     vec2 uv = vUv;
     vec2 centered = uv * 2.0 - 1.0;
     
-    // Sample entity trails
-    vec4 entityMask = sampleMaskBlurred(uv, 2.0);
-    float snakeTrail = smoothstep(0.0, 0.3, entityMask.r);
-    float orgTrail = smoothstep(0.0, 0.3, entityMask.g);
-    float totalTrail = snakeTrail + orgTrail;
-    
-    // UV distortion from trails
-    vec2 distortedUV = uv;
-    float dx = uMaskTexelSize.x * 4.0;
-    float dy = uMaskTexelSize.y * 4.0;
-    float presL = texture2D(uEntityMask, uv - vec2(dx, 0.0)).r + texture2D(uEntityMask, uv - vec2(dx, 0.0)).g;
-    float presR = texture2D(uEntityMask, uv + vec2(dx, 0.0)).r + texture2D(uEntityMask, uv + vec2(dx, 0.0)).g;
-    float presD = texture2D(uEntityMask, uv - vec2(0.0, dy)).r + texture2D(uEntityMask, uv - vec2(0.0, dy)).g;
-    float presU = texture2D(uEntityMask, uv + vec2(0.0, dy)).r + texture2D(uEntityMask, uv + vec2(0.0, dy)).g;
-    vec2 gradient = vec2(presR - presL, presU - presD);
-    distortedUV += gradient * 0.01;
+    // Sample entity trails (slimy traces)
+    vec4 entityMask = sampleMaskBlurred(uv, 3.0);
+    float snakeTrail = smoothstep(0.0, 0.2, entityMask.r);
+    float orgTrail = smoothstep(0.0, 0.2, entityMask.g);
+    float totalTrail = min(snakeTrail + orgTrail, 1.0);
     
     // Lens distortion
     float r2 = dot(centered, centered);
-    distortedUV += centered * (r2 * 0.04);
+    vec2 distortedUV = uv + centered * (r2 * 0.03);
     
-    // Base color gradient
-    float baseHue = 0.25;
-    float hueVariation = sin(uv.x * 3.14159) * 0.08 + cos(uv.y * 2.0) * 0.05;
-    float posHue = baseHue + hueVariation + snoise(uv * 2.0) * 0.05;
-    posHue += (uv.x + uv.y - 1.0) * 0.06;
+    // === STONE/ORGANIC FLOOR TEXTURE ===
     
-    // Trails shift hue
-    posHue += snakeTrail * 0.04;
-    posHue -= orgTrail * 0.02;
+    // Large scale stone pattern (static - no animation)
+    float stoneNoise = fbm(distortedUV * 4.0);
     
-    // Organic texture
-    vec2 warpedUV = warp(distortedUV * 3.0, uTime);
-    float noise = fbm(warpedUV);
+    // Voronoi cracks
+    float cracks = voronoi(distortedUV * 8.0);
+    float crackLines = 1.0 - smoothstep(0.0, 0.08, cracks); // Dark cracks
+    float crackEdge = smoothstep(0.08, 0.2, cracks); // Crack edge highlight
     
-    float saturation = 0.35 + noise * 0.15;
-    float brightness = 0.75 + noise * 0.15;
-    brightness += snakeTrail * 0.06;
-    brightness += orgTrail * 0.04;
+    // Secondary detail noise
+    float detail = fbm(distortedUV * 12.0);
     
-    float centerGlow = 1.0 - length(centered) * 0.3;
-    brightness *= centerGlow;
+    // === YELLOW/AMBER COLOR PALETTE ===
+    // Base yellow-amber stone color
+    vec3 stoneLight = vec3(0.85, 0.75, 0.45);  // Light amber
+    vec3 stoneMid = vec3(0.70, 0.55, 0.30);    // Medium amber
+    vec3 stoneDark = vec3(0.45, 0.35, 0.20);   // Dark amber/brown
+    vec3 crackColor = vec3(0.25, 0.18, 0.10);  // Very dark brown for cracks
     
-    vec3 baseColor = hsv2rgb(vec3(posHue, saturation, brightness));
+    // Mix stone colors based on noise
+    vec3 baseStone = mix(stoneMid, stoneLight, stoneNoise * 0.5 + 0.3);
+    baseStone = mix(baseStone, stoneDark, smoothstep(0.3, 0.7, detail) * 0.3);
     
-    // Caustics
-    float caustic = snoise(warpedUV * 4.0 + uTime * 0.1);
-    baseColor += vec3(0.06, 0.08, 0.03) * smoothstep(-0.3, 0.8, caustic) * 0.5;
+    // Add crack darkness
+    baseStone = mix(baseStone, crackColor, crackLines * 0.8);
     
-    // Grain
-    float grain = snoise(uv * 50.0 + uTime * 0.5);
-    baseColor += grain * 0.01;
+    // Subtle highlight on crack edges
+    baseStone += vec3(0.08, 0.06, 0.02) * crackEdge * 0.3;
+    
+    // Very subtle variation across screen
+    float screenVar = sin(uv.x * 2.0) * cos(uv.y * 1.5) * 0.05;
+    baseStone *= 1.0 + screenVar;
+    
+    // Fine grain texture (static)
+    float grain = snoise(distortedUV * 60.0);
+    baseStone += grain * 0.02;
+    
+    // Center slightly brighter
+    float centerGlow = 1.0 - length(centered) * 0.15;
+    baseStone *= centerGlow;
+    
+    // === SLIMY TRAILS ON TOP ===
+    // Snake slime - bright yellow-green, shiny
+    vec3 snakeSlime = vec3(0.75, 0.85, 0.25); // Yellow-green slime
+    float slimeSpec = smoothstep(0.3, 0.8, snakeTrail); // Shiny highlight
+    
+    // Organism slime - slightly different tint
+    vec3 orgSlime = vec3(0.65, 0.80, 0.35); // Slightly greener
+    
+    // Apply slime trails
+    vec3 finalColor = baseStone;
+    
+    // Slime darkens stone slightly where it is, then adds shine
+    finalColor = mix(finalColor, finalColor * 0.85, totalTrail * 0.3);
+    
+    // Add slime color/shine
+    finalColor += snakeSlime * snakeTrail * 0.25;
+    finalColor += orgSlime * orgTrail * 0.2;
+    
+    // Slime reflection/shine
+    float shine = snoise(distortedUV * 15.0 + vec2(uTime * 0.02, 0.0));
+    finalColor += vec3(0.1, 0.12, 0.04) * totalTrail * smoothstep(0.3, 0.8, shine);
     
     // Vignette
     float dist = length(centered);
     float vignette = smoothstep(uVignetteParams.x, uVignetteParams.y, dist);
-    vec3 finalColor = mix(baseColor, baseColor * uVignetteParams.z, vignette);
+    finalColor = mix(finalColor, finalColor * uVignetteParams.z, vignette);
     
-    // Trail glows
-    finalColor += vec3(0.06, 0.09, 0.02) * snakeTrail;
-    finalColor += vec3(0.02, 0.06, 0.04) * orgTrail;
-    
-    finalColor += vec3(0.03, 0.04, 0.01);
+    // Warm ambient
+    finalColor += vec3(0.02, 0.015, 0.005);
     
     gl_FragColor = vec4(finalColor, 1.0);
 }
