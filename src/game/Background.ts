@@ -9,13 +9,13 @@ void main() {
 }
 `;
 
+// Animated petri dish surface with living bacteria
 const FRAGMENT_SHADER = `
 uniform float uTime;
 uniform vec3 uVignetteParams;
-uniform sampler2D uEntityMask;
-uniform vec2 uMaskTexelSize;
 varying vec2 vUv;
 
+// --- Noise Functions ---
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec3 permute(vec3 x) { return mod289(((x * 34.0) + 1.0) * x); }
@@ -42,21 +42,88 @@ float snoise(vec2 v) {
     return 130.0 * dot(m, g);
 }
 
-float fbm(vec2 st) {
+float fbm(vec2 p, int octaves) {
     float value = 0.0;
     float amplitude = 0.5;
-    for (int i = 0; i < 5; i++) {
-        value += amplitude * snoise(st);
-        st *= 2.1;
+    for (int i = 0; i < 6; i++) {
+        if (i >= octaves) break;
+        value += amplitude * snoise(p);
+        p *= 2.0;
         amplitude *= 0.5;
     }
     return value;
 }
 
-vec2 warp(vec2 p, float time) {
-    float n1 = snoise(p * 2.0 + time * 0.1);
-    float n2 = snoise(p * 2.0 + vec2(5.2, 1.3) + time * 0.08);
-    return p + vec2(n1, n2) * 0.3;
+// Animated voronoi for living cells
+float voronoiAnimated(vec2 p, float time, out vec2 cellCenter, out float cellId) {
+    vec2 i_st = floor(p);
+    vec2 f_st = fract(p);
+    float m_dist = 10.0;
+    
+    for (int y = -1; y <= 1; y++) {
+        for (int x = -1; x <= 1; x++) {
+            vec2 neighbor = vec2(float(x), float(y));
+            vec2 cell = i_st + neighbor;
+            
+            // Cell-specific random values
+            float hash1 = fract(sin(dot(cell, vec2(127.1, 311.7))) * 43758.5453);
+            float hash2 = fract(sin(dot(cell, vec2(269.5, 183.3))) * 23421.631);
+            float hash3 = fract(sin(dot(cell, vec2(419.2, 371.9))) * 51723.137);
+            
+            // Animate cell center - swimming/merging motion
+            vec2 point = vec2(hash1, hash2);
+            point += 0.3 * vec2(
+                sin(time * (0.3 + hash3 * 0.4) + hash1 * 6.28),
+                cos(time * (0.25 + hash1 * 0.35) + hash2 * 6.28)
+            );
+            
+            vec2 diff = neighbor + point - f_st;
+            float dist = length(diff);
+            
+            if (dist < m_dist) {
+                m_dist = dist;
+                cellCenter = cell + point;
+                cellId = hash1;
+            }
+        }
+    }
+    return m_dist;
+}
+
+// Second order voronoi for cell edges
+float voronoiEdge(vec2 p, float time) {
+    vec2 i_st = floor(p);
+    vec2 f_st = fract(p);
+    float m_dist1 = 10.0;
+    float m_dist2 = 10.0;
+    
+    for (int y = -1; y <= 1; y++) {
+        for (int x = -1; x <= 1; x++) {
+            vec2 neighbor = vec2(float(x), float(y));
+            vec2 cell = i_st + neighbor;
+            
+            float hash1 = fract(sin(dot(cell, vec2(127.1, 311.7))) * 43758.5453);
+            float hash2 = fract(sin(dot(cell, vec2(269.5, 183.3))) * 23421.631);
+            float hash3 = fract(sin(dot(cell, vec2(419.2, 371.9))) * 51723.137);
+            
+            vec2 point = vec2(hash1, hash2);
+            point += 0.3 * vec2(
+                sin(time * (0.3 + hash3 * 0.4) + hash1 * 6.28),
+                cos(time * (0.25 + hash1 * 0.35) + hash2 * 6.28)
+            );
+            
+            vec2 diff = neighbor + point - f_st;
+            float dist = length(diff);
+            
+            if (dist < m_dist1) {
+                m_dist2 = m_dist1;
+                m_dist1 = dist;
+            } else if (dist < m_dist2) {
+                m_dist2 = dist;
+            }
+        }
+    }
+    return m_dist2 - m_dist1;
 }
 
 vec3 hsv2rgb(vec3 c) {
@@ -65,126 +132,108 @@ vec3 hsv2rgb(vec3 c) {
     return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
 }
 
-vec4 sampleMaskBlurred(vec2 uv, float radius) {
-    vec4 sum = vec4(0.0);
-    float totalWeight = 0.0;
-    for (int i = -2; i <= 2; i++) {
-        for (int j = -2; j <= 2; j++) {
-            vec2 offset = vec2(float(i), float(j)) * uMaskTexelSize * radius;
-            float weight = exp(-float(i*i + j*j) / 4.0);
-            sum += texture2D(uEntityMask, uv + offset) * weight;
-            totalWeight += weight;
-        }
-    }
-    return sum / totalWeight;
-}
-
-// Voronoi for stone cracks
-float voronoi(vec2 p) {
-    vec2 i_st = floor(p);
-    vec2 f_st = fract(p);
-    float m_dist = 1.0;
-    for (int y = -1; y <= 1; y++) {
-        for (int x = -1; x <= 1; x++) {
-            vec2 neighbor = vec2(float(x), float(y));
-            vec2 cellId = i_st + neighbor;
-            float rx = fract(sin(dot(cellId, vec2(127.1, 311.7))) * 43758.5453);
-            float ry = fract(sin(dot(cellId, vec2(269.5, 183.3))) * 43758.5453);
-            vec2 point = vec2(rx, ry);
-            vec2 diff = neighbor + point - f_st;
-            m_dist = min(m_dist, dot(diff, diff));
-        }
-    }
-    return sqrt(m_dist);
-}
-
 void main() {
     vec2 uv = vUv;
     vec2 centered = uv * 2.0 - 1.0;
+    float distFromCenter = length(centered);
+    float t = uTime * 0.5;
     
-    // Sample entity trails (slimy traces)
-    vec4 entityMask = sampleMaskBlurred(uv, 3.0);
-    float snakeTrail = smoothstep(0.0, 0.2, entityMask.r);
-    float orgTrail = smoothstep(0.0, 0.2, entityMask.g);
-    float totalTrail = min(snakeTrail + orgTrail, 1.0);
+    // === AGAR GEL BASE ===
+    vec3 agarLight = vec3(0.92, 0.88, 0.70);
+    vec3 agarMid = vec3(0.82, 0.76, 0.55);
+    vec3 agarDark = vec3(0.68, 0.60, 0.42);
     
-    // Lens distortion
-    float r2 = dot(centered, centered);
-    vec2 distortedUV = uv + centered * (r2 * 0.03);
+    // Flowing organic noise
+    vec2 flowUV = uv + vec2(t * 0.02, t * 0.015);
+    float agarNoise = fbm(flowUV * 4.0, 5);
+    vec3 agarBase = mix(agarMid, agarLight, agarNoise * 0.5 + 0.25);
     
-    // === STONE/ORGANIC FLOOR TEXTURE ===
+    // === LARGE BACTERIAL CELLS (Swimming) ===
+    vec2 cellCenter1;
+    float cellId1;
+    float cells1 = voronoiAnimated(uv * 5.0, t, cellCenter1, cellId1);
+    float cellEdge1 = voronoiEdge(uv * 5.0, t);
     
-    // Large scale stone pattern (static - no animation)
-    float stoneNoise = fbm(distortedUV * 4.0);
+    // Cell membrane
+    float membrane1 = smoothstep(0.02, 0.06, cellEdge1);
     
-    // Voronoi cracks
-    float cracks = voronoi(distortedUV * 8.0);
-    float crackLines = 1.0 - smoothstep(0.0, 0.08, cracks); // Dark cracks
-    float crackEdge = smoothstep(0.08, 0.2, cracks); // Crack edge highlight
+    // Cell interior
+    float cellBody1 = 1.0 - smoothstep(0.0, 0.5, cells1);
     
-    // Secondary detail noise
-    float detail = fbm(distortedUV * 12.0);
+    // Cell color based on ID (slight variations)
+    float cellHue = 0.12 + cellId1 * 0.08;
+    float cellSat = 0.15 + cellId1 * 0.1;
+    vec3 cellColor1 = hsv2rgb(vec3(cellHue, cellSat, 0.88));
     
-    // === YELLOW/AMBER COLOR PALETTE ===
-    // Base yellow-amber stone color
-    vec3 stoneLight = vec3(0.85, 0.75, 0.45);  // Light amber
-    vec3 stoneMid = vec3(0.70, 0.55, 0.30);    // Medium amber
-    vec3 stoneDark = vec3(0.45, 0.35, 0.20);   // Dark amber/brown
-    vec3 crackColor = vec3(0.25, 0.18, 0.10);  // Very dark brown for cracks
+    // === SMALLER BACTERIA (Dividing/Merging) ===
+    vec2 cellCenter2;
+    float cellId2;
+    float cells2 = voronoiAnimated(uv * 12.0 + 5.0, t * 1.3, cellCenter2, cellId2);
+    float cellEdge2 = voronoiEdge(uv * 12.0 + 5.0, t * 1.3);
     
-    // Mix stone colors based on noise
-    vec3 baseStone = mix(stoneMid, stoneLight, stoneNoise * 0.5 + 0.3);
-    baseStone = mix(baseStone, stoneDark, smoothstep(0.3, 0.7, detail) * 0.3);
+    float membrane2 = smoothstep(0.03, 0.08, cellEdge2);
+    float cellBody2 = 1.0 - smoothstep(0.0, 0.4, cells2);
     
-    // Add crack darkness
-    baseStone = mix(baseStone, crackColor, crackLines * 0.8);
+    vec3 cellColor2 = hsv2rgb(vec3(0.08 + cellId2 * 0.06, 0.12 + cellId2 * 0.08, 0.92));
     
-    // Subtle highlight on crack edges
-    baseStone += vec3(0.08, 0.06, 0.02) * crackEdge * 0.3;
+    // === TINY PARTICLES (Diving in/out of focus) ===
+    float particleNoise = snoise(uv * 30.0 + t * 0.5);
+    float particles = smoothstep(0.7, 0.9, particleNoise);
     
-    // Very subtle variation across screen
-    float screenVar = sin(uv.x * 2.0) * cos(uv.y * 1.5) * 0.05;
-    baseStone *= 1.0 + screenVar;
+    // Particles depth - some sharp, some blurry
+    float depthNoise = snoise(uv * 15.0 + vec2(100.0, 0.0));
+    float particleBlur = smoothstep(-0.5, 0.5, depthNoise);
     
-    // Fine grain texture (static)
-    float grain = snoise(distortedUV * 60.0);
-    baseStone += grain * 0.02;
+    // === COMPOSE LAYERS ===
+    vec3 col = agarBase;
     
-    // Center slightly brighter
-    float centerGlow = 1.0 - length(centered) * 0.15;
-    baseStone *= centerGlow;
+    // Large cells (background layer)
+    col = mix(col, cellColor1, cellBody1 * 0.25);
+    col = mix(col, agarDark, (1.0 - membrane1) * 0.15); // Membrane shadows
     
-    // === SLIMY TRAILS ON TOP ===
-    // Snake slime - bright yellow-green, shiny
-    vec3 snakeSlime = vec3(0.75, 0.85, 0.25); // Yellow-green slime
-    float slimeSpec = smoothstep(0.3, 0.8, snakeTrail); // Shiny highlight
+    // Smaller cells (middle layer)
+    col = mix(col, cellColor2, cellBody2 * 0.18);
+    col = mix(col, agarDark * 0.9, (1.0 - membrane2) * 0.1);
     
-    // Organism slime - slightly different tint
-    vec3 orgSlime = vec3(0.65, 0.80, 0.35); // Slightly greener
+    // Particles (foreground)
+    col += vec3(0.06, 0.055, 0.04) * particles * (0.5 + particleBlur * 0.5);
     
-    // Apply slime trails
-    vec3 finalColor = baseStone;
+    // === DEPTH OF FIELD EFFECT ===
+    // Some areas slightly blurred (out of focus)
+    float focusNoise = fbm(uv * 2.0 + t * 0.1, 3);
+    float inFocus = smoothstep(-0.3, 0.3, focusNoise);
     
-    // Slime darkens stone slightly where it is, then adds shine
-    finalColor = mix(finalColor, finalColor * 0.85, totalTrail * 0.3);
+    // Slight contrast adjustment for focus
+    col = mix(col * 0.95 + 0.03, col, inFocus);
     
-    // Add slime color/shine
-    finalColor += snakeSlime * snakeTrail * 0.25;
-    finalColor += orgSlime * orgTrail * 0.2;
+    // === MICROSCOPE LIGHTING ===
+    // Köhler illumination (even with slight center brightness)
+    float lighting = 1.0 - distFromCenter * 0.15;
+    col *= lighting;
     
-    // Slime reflection/shine
-    float shine = snoise(distortedUV * 15.0 + vec2(uTime * 0.02, 0.0));
-    finalColor += vec3(0.1, 0.12, 0.04) * totalTrail * smoothstep(0.3, 0.8, shine);
+    // Subtle chromatic aberration at edges
+    float chromatic = distFromCenter * 0.02;
+    col.r *= 1.0 + chromatic;
+    col.b *= 1.0 - chromatic;
     
-    // Vignette
-    float dist = length(centered);
-    float vignette = smoothstep(uVignetteParams.x, uVignetteParams.y, dist);
-    finalColor = mix(finalColor, finalColor * uVignetteParams.z, vignette);
+    // === CAUSTICS (Light through medium) ===
+    float caustic1 = snoise(uv * 6.0 + t * 0.08);
+    float caustic2 = snoise(uv * 9.0 - t * 0.06);
+    float caustics = (caustic1 + caustic2) * 0.5;
+    col += vec3(0.02, 0.018, 0.01) * smoothstep(-0.2, 0.5, caustics);
+    
+    // === FINE GRAIN ===
+    float grain = snoise(uv * 100.0 + t);
+    col += grain * 0.006;
+    
+    // === VIGNETTE ===
+    float vignette = smoothstep(uVignetteParams.x, uVignetteParams.y, distFromCenter);
+    col = mix(col, col * uVignetteParams.z, vignette);
     
     // Warm ambient
-    finalColor += vec3(0.02, 0.015, 0.005);
+    col += vec3(0.01, 0.008, 0.003);
     
-    gl_FragColor = vec4(finalColor, 1.0);
+    gl_FragColor = vec4(col, 1.0);
 }
 `;
 
@@ -192,66 +241,8 @@ export class Background {
     public mesh: THREE.Mesh;
     private material: THREE.ShaderMaterial;
 
-    // Single render target for trails (no ping-pong, just fade in shader)
-    private trailTarget: THREE.WebGLRenderTarget;
-    private trailScene: THREE.Scene;
-    private trailCamera: THREE.OrthographicCamera;
-
-    // Reusable circle for rendering entities
-    private circleGeometry: THREE.CircleGeometry;
-    private snakeMaterial: THREE.MeshBasicMaterial;
-    private orgMaterial: THREE.MeshBasicMaterial;
-
-    // Fade quad
-    private fadeQuad: THREE.Mesh;
-
-    private readonly TRAIL_SIZE = 256;
-
     constructor() {
         const geometry = new THREE.PlaneGeometry(2, 2);
-
-        this.trailTarget = new THREE.WebGLRenderTarget(this.TRAIL_SIZE, this.TRAIL_SIZE, {
-            minFilter: THREE.LinearFilter,
-            magFilter: THREE.LinearFilter,
-            format: THREE.RGBAFormat
-        });
-
-        this.trailScene = new THREE.Scene();
-
-        this.trailCamera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 200);
-        this.trailCamera.position.set(0, 100, 0);
-        this.trailCamera.lookAt(0, 0, 0);
-
-        // Circle for entities
-        this.circleGeometry = new THREE.CircleGeometry(1, 16);
-        this.circleGeometry.rotateX(-Math.PI / 2);
-
-        this.snakeMaterial = new THREE.MeshBasicMaterial({
-            color: 0xff0000,
-            transparent: true,
-            opacity: 0.15,
-            depthWrite: false
-        });
-
-        this.orgMaterial = new THREE.MeshBasicMaterial({
-            color: 0x00ff00,
-            transparent: true,
-            opacity: 0.12,
-            depthWrite: false
-        });
-
-        // Fade quad - draws previous frame slightly darker
-        const fadeGeo = new THREE.PlaneGeometry(2, 2);
-        const fadeMat = new THREE.MeshBasicMaterial({
-            color: 0x000000,
-            transparent: true,
-            opacity: 0.03, // 3% fade per frame
-            depthWrite: false
-        });
-        this.fadeQuad = new THREE.Mesh(fadeGeo, fadeMat);
-        this.fadeQuad.position.y = 99; // Just below camera
-        this.fadeQuad.rotation.x = -Math.PI / 2;
-        this.fadeQuad.scale.set(100, 100, 1);
 
         this.material = new THREE.ShaderMaterial({
             vertexShader: VERTEX_SHADER,
@@ -264,9 +255,7 @@ export class Background {
                         CONFIG.VIGNETTE.RADIUS_END,
                         CONFIG.VIGNETTE.DARKNESS
                     )
-                },
-                uEntityMask: { value: this.trailTarget.texture },
-                uMaskTexelSize: { value: new THREE.Vector2(1.0 / this.TRAIL_SIZE, 1.0 / this.TRAIL_SIZE) }
+                }
             },
             depthWrite: false,
             depthTest: false
@@ -281,62 +270,16 @@ export class Background {
         this.material.uniforms.uTime.value += dt;
     }
 
-    /**
-     * Render entity trails
-     */
     public renderTrails(
-        renderer: THREE.WebGLRenderer,
-        snakePath: THREE.Vector3[],
-        organismPositions: { x: number, z: number, radius: number }[],
-        worldBounds: { width: number, depth: number }
+        _renderer: THREE.WebGLRenderer,
+        _snakePath: THREE.Vector3[],
+        _organismPositions: { x: number, z: number, radius: number }[],
+        _worldBounds: { width: number, depth: number }
     ) {
-        const hw = worldBounds.width / 2;
-        const hd = worldBounds.depth / 2;
-        this.trailCamera.left = -hw;
-        this.trailCamera.right = hw;
-        this.trailCamera.top = hd;
-        this.trailCamera.bottom = -hd;
-        this.trailCamera.updateProjectionMatrix();
-        this.fadeQuad.scale.set(worldBounds.width, worldBounds.depth, 1);
-
-        // Clear scene
-        while (this.trailScene.children.length > 0) {
-            this.trailScene.remove(this.trailScene.children[0]);
-        }
-
-        // Add fade quad first (darkens previous frame)
-        this.trailScene.add(this.fadeQuad);
-
-        // Add snake circles
-        const snakeRadius = CONFIG.SNAKE.CIRCLE_RADIUS * 1.5;
-        for (let i = 0; i < snakePath.length; i += 5) {
-            const p = snakePath[i];
-            const circle = new THREE.Mesh(this.circleGeometry, this.snakeMaterial);
-            circle.position.set(p.x, 0, p.z);
-            circle.scale.setScalar(snakeRadius);
-            this.trailScene.add(circle);
-        }
-
-        // Add organism circles
-        for (const org of organismPositions) {
-            const circle = new THREE.Mesh(this.circleGeometry, this.orgMaterial);
-            circle.position.set(org.x, 0, org.z);
-            circle.scale.setScalar(org.radius * 2);
-            this.trailScene.add(circle);
-        }
-
-        // Render additively to existing texture
-        renderer.setRenderTarget(this.trailTarget);
-        renderer.autoClear = false;
-        renderer.render(this.trailScene, this.trailCamera);
-        renderer.autoClear = true;
-        renderer.setRenderTarget(null);
+        // No-op: trails removed
     }
 
     public dispose() {
-        this.trailTarget.dispose();
-        this.circleGeometry.dispose();
-        this.snakeMaterial.dispose();
-        this.orgMaterial.dispose();
+        this.material.dispose();
     }
 }
